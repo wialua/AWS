@@ -91,7 +91,7 @@ EventSection:AddButton({
     Title = "Load Event Script",
     Description = "Loads my Halloween Event script",
     Callback = function()
-        loadstring(game:HttpGet("https://raw.githubusercontent.com/bigbeanscripts/Prison-Event/refs/heads/main/event"))()
+        loadstring(game:HttpGet("https://raw.githubusercontent.com/wialua/AWS/refs/heads/main/Event",true))()
     end
 })
 
