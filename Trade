@@ -1,0 +1,416 @@
+local Library = loadstring(game:HttpGetAsync("https://github.com/ActualMasterOogway/Fluent-Renewed/releases/latest/download/Fluent.luau"))()
+local SaveManager = loadstring(game:HttpGetAsync("https://raw.githubusercontent.com/ActualMasterOogway/Fluent-Renewed/master/Addons/SaveManager.luau"))()
+local InterfaceManager = loadstring(game:HttpGetAsync("https://raw.githubusercontent.com/ActualMasterOogway/Fluent-Renewed/master/Addons/InterfaceManager.luau"))()
+
+local Window = Library:Window{
+    Title = "Arm Wrestling Simulator",
+    SubTitle = "By 901Riella",
+    TabWidth = 160,
+    Size =  UDim2.fromOffset(580, 460),
+    Resize = false, 
+    Acrylic = true,
+    Theme = "Vynixu",
+    MinimizeKey = Enum.KeyCode.LeftShift
+}
+
+local Tabs = {
+    Trade = Window:AddTab({ Title = "Trading", Icon = "phosphor-swap-bold" }),
+}
+
+local tradeSection = Tabs.Trade:AddSection("Trading Settings")
+
+-- Services and Remote Function
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local Players = game:GetService("Players")
+local Knit = require(ReplicatedStorage.Packages.Knit)
+local PetServiceRF = ReplicatedStorage.Packages.Knit.Services.PetService.RF:FindFirstChild("getOwned")
+local TradingServiceRF = game:GetService("ReplicatedStorage").Packages.Knit.Services.TradingService.RF.UpdateTrade
+
+-- Pet Data Management
+local ownedPetData = {} 
+local petNames = {}
+local selectedPetName = nil  
+local currentTradeId = nil
+local autoTradeRunning = false
+local autoTradeCoroutine = nil
+
+-- Session tracking for one-time trading
+local currentSessionComplete = false
+
+local function fetchPetData()
+    ownedPetData = {}
+    petNames = {}
+
+    if not PetServiceRF or not PetServiceRF:IsA("RemoteFunction") then
+        return false
+    end
+
+    local success, petData = pcall(function()
+        return PetServiceRF:InvokeServer()
+    end)
+
+    if not success or not petData then
+        return false
+    end
+
+    for petId, petInfo in pairs(petData) do
+        -- Only unlocked pets (Locked == false)
+        if petInfo.Locked == false then
+            local displayName = petInfo.Key
+            if not ownedPetData[displayName] then
+                ownedPetData[displayName] = {}
+            end
+            table.insert(ownedPetData[displayName], petId)
+
+            if not table.find(petNames, displayName) then
+                table.insert(petNames, displayName)
+            end
+        end
+    end
+
+    table.sort(petNames)
+    return true
+end
+
+local PetDropdown = tradeSection:AddDropdown("UnlockedPetsDropdown", {
+    Title = "Select Pet",
+    Description = "Select a pet you wish to trade (must be unlocked)",
+    Values = petNames,
+    Multi = false,
+    Searchable = true,
+    Default = petNames[1] or nil
+})
+
+tradeSection:AddButton({
+    Title = "Refresh Pet List",
+    Description = "Update the dropdown with all unlocked pets.",
+    Callback = function()
+        if fetchPetData() then
+            PetDropdown:SetValues(petNames)
+        end
+    end
+})
+
+-- Initial fetch
+fetchPetData()
+PetDropdown:SetValues(petNames)
+
+local TierDropdown = tradeSection:AddDropdown("SelectTierDropdown", {
+    Title = "Select Tier",
+    Description = "Select pet tiers for trading",
+    Values = { "Normal", "Gold", "Void", "Pristine" },
+    Multi = true,
+    Searchable = true,
+    Default = {}
+})
+
+local CraftDropdown = tradeSection:AddDropdown("SelectCraftDropdown", {
+    Title = "Select Craft Type",
+    Description = "Select pet craft types for trading",
+    Values = { "Baby", "Big", "Huge", "Goliath" },
+    Multi = true,
+    Searchable = true,
+    Default = {}
+})
+
+local TradeAmountInput2 = tradeSection:AddInput("SelectAmountInput", {
+    Title = "Select Amount",
+    Description = "Enter the amount of pets to trade\n(1-100)",
+    Placeholder = "--",
+    Numeric = true,
+    Default = ""
+})
+
+-- Updated function to handle stat formats like "x59.3m"
+local function parseNumberInput(input)
+    if not input or input == "" then return nil end
+    
+    input = tostring(input):lower():gsub("%s+", "")
+    
+    -- Handle formats like "x59.3m" - remove the 'x' prefix if present
+    if input:match("^x") then
+        input = input:sub(2) -- Remove the 'x' prefix
+    end
+    
+    local multipliers = {
+        k = 1e3,
+        m = 1e6,
+        b = 1e9,
+        t = 1e12,
+        qa = 1e15,
+        qi = 1e18,
+        sx = 1e21,
+        sp = 1e24,
+        oc = 1e27,
+        no = 1e30,
+        de = 1e33
+    }
+    
+    -- Try to parse as plain number first
+    local num = tonumber(input)
+    if num then return num end
+
+    -- Parse with suffix (e.g., "59.3m")
+    local value, suffix = input:match("^(%d+%.?%d*)([a-z]+)$")
+    if value and suffix and multipliers[suffix] then
+        return tonumber(value) * multipliers[suffix]
+    end
+    
+    return nil
+end
+
+local tradeinputparagraph = tradeSection:AddParagraph("TradeInput", {
+    Title = "Note",
+    Content = "For the minimum and maximum stat filters, you can enter values in plain numbers (e.g., 2000) or shorthand formats like 1k, 2m, 3b, 4t, and so on. The system will then calculate a stat range, and only pets whose stats fall within that range will be traded."
+})
+
+local TradeAmountInput = tradeSection:AddInput("TradeAmountInput", {
+    Title = "Minimum Stats",
+    Description = "Enter the lowest stats you \nare willing to trade.",
+    Placeholder = "--",
+    Numeric = false,
+    Default = ""
+})
+
+local TradeAmountInput1 = tradeSection:AddInput("TradeAmountInput1", {
+    Title = "Maximum Stats",
+    Description = "Enter the highest stats you \nare willing to trade.",
+    Placeholder = "--",
+    Numeric = false,
+    Default = ""
+})
+
+-- Function to get matching pet IDs
+local function getMatchingPetIDs()
+    -- Fetch latest pet data
+    local success, petData = pcall(function()
+        return PetServiceRF:InvokeServer()
+    end)
+    if not success or not petData then
+        return {}
+    end
+
+    -- Get dropdown/input values safely
+    local selectedPetName = PetDropdown.Value
+    local selectedTiersDict = TierDropdown.Value or {}
+    local selectedCraftsDict = CraftDropdown.Value or {}
+    local amount = tonumber(TradeAmountInput2.Value) or 1
+    
+    -- Cap the amount at 100 max
+    amount = math.min(amount, 100)
+    
+    local minStat = parseNumberInput(TradeAmountInput.Value) or 0
+    local maxStat = parseNumberInput(TradeAmountInput1.Value) or math.huge
+
+    -- Convert single selection to table for consistency
+    local petNamesToCheck = {}
+    if selectedPetName then
+        if type(selectedPetName) == "table" then
+            petNamesToCheck = selectedPetName
+        else
+            petNamesToCheck = {selectedPetName}
+        end
+    end
+
+    -- Convert tier and craft dictionaries to arrays of selected values
+    local selectedTiers = {}
+    for tier, selected in pairs(selectedTiersDict) do
+        if selected then
+            table.insert(selectedTiers, tier)
+        end
+    end
+
+    local selectedCrafts = {}
+    for craft, selected in pairs(selectedCraftsDict) do
+        if selected then
+            table.insert(selectedCrafts, craft)
+        end
+    end
+
+    local player = game:GetService("Players").LocalPlayer
+    local TradingUI = player.PlayerGui.GameUI.Menus.Trading.Container.OurPlayer.Offer.List.ScrollingFrame
+
+    local matchingPetIds = {}
+    local totalFound = 0
+    
+    for _, petName in ipairs(petNamesToCheck) do
+        local ids = ownedPetData[petName] or {}
+        
+        for _, petId in ipairs(ids) do
+            -- Stop if we've reached the amount limit
+            if totalFound >= amount then break end
+            
+            local petInfo = petData[petId]
+            if petInfo then
+                -- Check tier match
+                local tierMatch = (#selectedTiers == 0) or table.find(selectedTiers, petInfo.Tier)
+                
+                -- Check craft match
+                local craftMatch = (#selectedCrafts == 0) or table.find(selectedCrafts, petInfo.CraftType)
+                
+                -- Get stat from UI with the correct path
+                local statValue = 0
+                local statText = "N/A"
+                
+                local statObj = TradingUI:FindFirstChild(petId)
+                if statObj and statObj:FindFirstChild("Toggle") then
+                    local toggle = statObj.Toggle
+                    if toggle:FindFirstChild("Stat") then
+                        statText = toggle.Stat.Text or "N/A"
+                        statValue = parseNumberInput(statText) or 0
+                    end
+                end
+                
+                -- Check stat match
+                local statMatch = statValue >= minStat and statValue <= maxStat
+
+                if tierMatch and craftMatch and statMatch then
+                    table.insert(matchingPetIds, petId)
+                    totalFound = totalFound + 1
+                end
+            end
+        end
+        
+        -- Break outer loop if we've reached the limit
+        if totalFound >= amount then break end
+    end
+    
+    return matchingPetIds
+end
+
+-- UI Setup
+local trading = Tabs.Trade:AddSection("Trade")
+
+local tradeSessionParagraph = trading:AddParagraph("TradeSessionInfo", {
+    Title = "Current Trade Session",
+    Content = "No active trade session. Please start a new trade.",
+})
+
+-- Auto Trade Toggle
+local autoTradeToggle = trading:AddToggle("AutoTradeToggle", {
+    Title = "Auto Trade",
+    Description = "Automatically trades all matching pets once per session",
+    Default = false
+})
+
+-- Auto Trade Status Paragraph
+local autoTradeStatusParagraph = trading:AddParagraph("AutoTradeStatus", {
+    Title = "Auto Trade Status",
+    Content = "Auto trade is currently disabled.",
+})
+
+-- One-time Auto Trade Function
+local function startOneTimeAutoTrade()
+    if autoTradeRunning then return end
+    
+    -- Check if we have a valid trade session
+    if not currentTradeId then
+        autoTradeStatusParagraph:SetValue("Auto trade waiting for trade session...")
+        return
+    end
+    
+    autoTradeRunning = true
+    autoTradeStatusParagraph:SetValue("Auto trade starting...")
+    
+    autoTradeCoroutine = coroutine.create(function()
+        -- Get all matching pets
+        local matchingPets = getMatchingPetIDs()
+        local totalPetsToTrade = #matchingPets
+        
+        if totalPetsToTrade == 0 then
+            autoTradeStatusParagraph:SetValue("Auto trade completed - No matching pets found")
+            currentSessionComplete = true
+            autoTradeRunning = false
+            return
+        end
+        
+        autoTradeStatusParagraph:SetValue("Auto trade running - Trading " .. totalPetsToTrade .. " matching pets...")
+        
+        local tradedCount = 0
+        local failedCount = 0
+        
+        -- Trade all matching pets
+        for i, petId in ipairs(matchingPets) do
+            if not autoTradeRunning then break end -- Stop if toggle turned off
+            
+            local args = {
+                [1] = currentTradeId,
+                [2] = petId
+            }
+            
+            local success, result = pcall(function()
+                return TradingServiceRF:InvokeServer(unpack(args))
+            end)
+            
+            if success then
+                tradedCount = tradedCount + 1
+                autoTradeStatusParagraph:SetValue("Auto trade running - Traded " .. tradedCount .. "/" .. totalPetsToTrade .. " pets")
+            else
+                failedCount = failedCount + 1
+                autoTradeStatusParagraph:SetValue("Auto trade running - Traded " .. tradedCount .. "/" .. totalPetsToTrade .. " pets (" .. failedCount .. " failed)")
+            end
+            
+            -- Small delay between trades to prevent spam
+            wait(0.5)
+        end
+        
+        -- Mark as completed
+        currentSessionComplete = true
+        autoTradeRunning = false
+        
+        -- Final status message
+        if tradedCount > 0 then
+            local statusMsg = "Auto trade completed - All " .. tradedCount .. " pets have been traded"
+            if failedCount > 0 then
+                statusMsg = statusMsg .. " (" .. failedCount .. " failed)"
+            end
+            autoTradeStatusParagraph:SetValue(statusMsg)
+        else
+            autoTradeStatusParagraph:SetValue("Auto trade completed - No pets were successfully traded")
+        end
+    end)
+    
+    coroutine.resume(autoTradeCoroutine)
+end
+
+local function stopAutoTrade()
+    if not autoTradeRunning then return end
+    
+    autoTradeRunning = false
+    
+    if autoTradeCoroutine then
+        autoTradeCoroutine = nil
+    end
+    
+    autoTradeStatusParagraph:SetValue("Auto trade stopped by user.")
+end
+
+-- Toggle callback
+autoTradeToggle:OnChanged(function(value)
+    if value then
+        startOneTimeAutoTrade()
+    else
+        stopAutoTrade()
+    end
+end)
+
+coroutine.wrap(function()
+    local TradingService = Knit.GetService("TradingService")
+
+    TradingService.newTrade:Connect(function(tradeId, tradeData)
+        currentTradeId = tradeId
+        currentSessionComplete = false
+
+        -- Always update the paragraph with the latest tradeId
+        local info = "Trade session ID: " .. tostring(tradeId)
+        if completedSessions and completedSessions[tradeId] then
+            info = info .. " (Already completed)"
+        end
+        tradeSessionParagraph:SetValue(info)
+
+        -- Optionally update status for new sessions
+        if completedSessions and not completedSessions[tradeId] then
+            autoTradeStatusParagraph:SetValue("New trade session detected. Auto trade ready.")
+        end
+    end)
+end)()
