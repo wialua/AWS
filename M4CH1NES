@@ -1,0 +1,309 @@
+--// Load Libraries and Anti-AFK
+loadstring(game:HttpGet("https://raw.githubusercontent.com/SenhorLDS/ProjectLDSHUB/refs/heads/main/Anti%20AFK"))()
+local Library = loadstring(game:HttpGet("https://github.com/ActualMasterOogway/Fluent-Renewed/releases/latest/download/Fluent.luau"))()
+local SaveManager = loadstring(game:HttpGet("https://github.com/wialua/UI/raw/refs/heads/main/savemanager",true))()
+local InterfaceManager = loadstring(game:HttpGet("https://raw.githubusercontent.com/ActualMasterOogway/Fluent-Renewed/master/Addons/InterfaceManager.luau"))()
+
+--// Main Hub Table for Organization
+local Hub = {Services = {}, Data = {}, State = {}, Functions = {}, UI = {}, Controllers = {}}
+
+--// Initialize Services & Game Modules
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local Knit = require(ReplicatedStorage.Packages.Knit)
+local KnitPackages = ReplicatedStorage:WaitForChild("Packages"):WaitForChild("Knit"):WaitForChild("Services")
+
+task.spawn(function()
+    Knit.OnStart():await()
+    Hub.Controllers.Goliath = Knit.GetController("GoliathController")
+end)
+
+Hub.Services = {Pet={getOwned=KnitPackages.PetService.RF:FindFirstChild("getOwned"),slimify=KnitPackages.PetService.RF:FindFirstChild("slimify"),goldify=KnitPackages.PetService.RF:FindFirstChild("goldify"),Pristine=KnitPackages.PetService.RF:FindFirstChild("Pristine"),Combine={cure=KnitPackages.PetCombineService.RF:FindFirstChild("cure"),mutate=KnitPackages.PetCombineService.RF:FindFirstChild("mutate")},Deslime={Purchase=KnitPackages.PetDeslimeService.RE.onPurchase,Claim=KnitPackages.PetDeslimeService.RE.onClaim},Goliath={onPurchase=KnitPackages.PetGoliathService.RE.onPurchase,onClaim=KnitPackages.PetGoliathService.RE.onClaim},Void={onCraftToVoid=KnitPackages.PetVoidService.RE.onCraftToVoid,onClaim=KnitPackages.PetVoidService.RE.onClaim}},Arms={getOwned=KnitPackages.ArmsService.RF:FindFirstChild("getOwned"),EvolveArms=KnitPackages.ArmsService.RF:FindFirstChild("EvolveArms")},RiftMachine={AddSlot=KnitPackages.RiftMachineService.RF.AddSlot,Claim=KnitPackages.RiftMachineService.RF.Claim},Forge={Forge=KnitPackages.ForgeService.RF.Forge}}
+Hub.State = {autoGoliath=false, autoMutate=false, autoMutateNoCure=false, autoSlime=false, autoEnchant=false, autoGoldPets=false, autoGoldArms=false, autoVoid=false, autoPristine=false, autoForge=false}
+Hub.Data = {goliathPets={}, mutatePets={}, slimePets={}, enchantPets={}, goldPets={}, goldArms={}, voidPets={}, pristinePets={}, selectedGoliathPetName=nil, selectedMutatePetName=nil, selectedMutateTargets={}, selectedSlimePetName=nil, selectedSlimeColors={}, selectedEnchantPetName=nil, selectedEnchants={}, selectedGoldPetName=nil, selectedGoldPetChance="20%", selectedGoldArmName=nil, selectedGoldArmChance="20%", selectedVoidPetName=nil, selectedPristinePetName=nil, selectedPristineChance="33%"}
+
+local fetchGoliathPets, fetchMutatePets, fetchSlimePets, fetchEnchantPets, fetchGoldableItems, fetchVoidablePets, fetchPristineablePets
+
+local function BuildUI()
+    Hub.UI.Window = Library:CreateWindow({Title="901 Hub", SubTitle="By Wia", TabWidth=160, Size=UDim2.fromOffset(580, 460), Acrylic=true, Theme="Dark", MinimizeKey=Enum.KeyCode.LeftControl})
+    local MachinesTab = Hub.UI.Window:AddTab({Title="Machines", Icon="star"})
+
+local GoliathSection = MachinesTab:AddSection("Goliath")
+    Hub.UI.GoliathPetDropdown = GoliathSection:AddDropdown("GoliathPetDropdown", {Title="Select Pet", Values={}, Multi=false, Searchable=true})
+    GoliathSection:AddButton({Title="Refresh Goliath Pets", Callback=function() local names=fetchGoliathPets(); Hub.UI.GoliathPetDropdown:SetValues(names) end})
+    Hub.UI.GoliathPetDropdown:OnChanged(function(value) Hub.Data.selectedGoliathPetName = value end)
+    local AutoGoliathToggle = GoliathSection:AddToggle("AutoGoliath", {Title="Enable Auto Goliath", Description="Fills all available slots, waits 910 seconds, then claims.", Default=false})
+    
+    AutoGoliathToggle:OnChanged(function(enabled)
+        Hub.State.autoGoliath = enabled
+        if not enabled then return end
+
+        task.spawn(function()
+            while Hub.State.autoGoliath do
+                -- 1. Validate that a pet is selected
+                if not Hub.Data.selectedGoliathPetName then
+                    Hub.State.autoGoliath = false
+                    AutoGoliathToggle:Set(false)
+                    break
+                end
+
+                fetchGoliathPets()
+                local petsToUse = Hub.Data.goliathPets[Hub.Data.selectedGoliathPetName] or {}
+
+                -- 3. Check if we have any pets left to use
+                if #petsToUse == 0 then
+                    Hub.State.autoGoliath = false
+                    AutoGoliathToggle:Set(false)
+                    break
+                end
+
+                -- 4. Place pets into the machine
+                local slotsToFill = math.min(3, #petsToUse)
+                for i = 1, slotsToFill do
+                    if not Hub.State.autoGoliath then break end
+                    local petId = petsToUse[i]
+                    local slotName = "Slot"..i
+                    Hub.Services.Pet.Goliath.onPurchase:FireServer(petId, slotName)
+                    task.wait(0.2) -- Small delay between placing each pet
+                end
+                
+                -- If the toggle was turned off while placing pets, exit now
+                if not Hub.State.autoGoliath then break end
+
+                -- 5. Wait for the 910 second machine timer
+                task.wait(910)
+
+                -- 6. Check again if the toggle was turned off during the wait
+                if not Hub.State.autoGoliath then
+                    break
+                end
+
+                -- 7. Claim all pets from the machine
+                for i = 1, slotsToFill do
+                    local slotName = "Slot"..i
+                    -- The first argument for claim doesn't matter, but we must provide something
+                    Hub.Services.Pet.Goliath.onClaim:FireServer("Claim", slotName)
+                    task.wait(0.2) -- Small delay between claiming each pet
+                end
+
+                task.wait(5) -- Brief cooldown before starting the next cycle
+            end
+        end)
+    end)
+
+    local MutateSection = MachinesTab:AddSection("Mutate")
+
+
+    local notemutate = MutateSection:Paragraph("Note", {
+        Title = "Note",
+        Content = "The game has added a delay that sadly can't be bypassed.",
+        TitleAlignment = "Middle",
+        ContentAlignment = Enum.TextXAlignment.Left
+    })
+
+    local function getMutationTypes() local types={}; local s,m=pcall(require,ReplicatedStorage.Enums.CureTypes); if s and type(m)=='table' then for _,n in pairs(m) do table.insert(types,n) end else return{"Ghost","Glowing","Rainbow","Cosmic"} end; table.sort(types); return types end
+    Hub.UI.MutatePetDropdown = MutateSection:AddDropdown("MutatePetDropdown",{Title="Select Pet", Values={}, Multi=false, Searchable=true})
+    MutateSection:AddButton({Title="Refresh Mutate Pets",Callback=function()local names=fetchMutatePets();Hub.UI.MutatePetDropdown:SetValues(names)end})
+    Hub.UI.MutationTargetDropdown = MutateSection:AddDropdown("MutationTargetDropdown",{Title="Select Cures to Keep", Values=getMutationTypes(), Multi=true, Default={}, Searchable=true})
+    Hub.UI.MutatePetDropdown:OnChanged(function(v) Hub.Data.selectedMutatePetName=v end)
+    Hub.UI.MutationTargetDropdown:OnChanged(function(v) local t={}; for n,s in pairs(v) do if s then table.insert(t,n) end end; Hub.Data.selectedMutateTargets=t; end)
+    local AutoMutateToggle=MutateSection:AddToggle("AutoMutateToggle",{Title="Auto Mutate",Default=false})
+    AutoMutateToggle:OnChanged(function(enabled)
+        Hub.State.autoMutate = enabled
+        if not enabled then return end
+        task.spawn(function()
+            while Hub.State.autoMutate do
+                if Hub.Data.selectedMutatePetName and #Hub.Data.selectedMutateTargets > 0 then
+                    fetchMutatePets()
+                    local petsToProcess = Hub.Data.mutatePets[Hub.Data.selectedMutatePetName] or {}
+                    if #petsToProcess == 0 then task.wait(5); continue end
+                    local petProcessedInCycle = false
+                    for _, pet in ipairs(petsToProcess) do
+                        if not Hub.State.autoMutate then break end
+                        local isTargetCure = table.find(Hub.Data.selectedMutateTargets, pet.Cure)
+                        if not isTargetCure then
+                            if pet.Cure ~= "No Cure" then
+                                Hub.Services.Pet.Combine.cure:InvokeServer(pet.Id)
+                                task.wait(0.5)
+                            end
+                            Hub.Services.Pet.Combine.mutate:InvokeServer(pet.Id, {})
+                            task.wait(0.5) 
+                            petProcessedInCycle = true
+                            break 
+                        end
+                    end
+                    if not petProcessedInCycle then task.wait(5) end
+                else
+                    task.wait(1)
+                end
+            end
+        end)
+    end)
+    MutateSection:AddButton({Title="Mutate Pet Randomly (No Cure)",Callback=function() Hub.State.autoMutateNoCure=not Hub.State.autoMutateNoCure; if not Hub.State.autoMutateNoCure then return end; if not Hub.Data.selectedMutatePetName then Hub.State.autoMutateNoCure=false;return end; task.spawn(function() while Hub.State.autoMutateNoCure do fetchMutatePets(); local id; for _,p in ipairs(Hub.Data.mutatePets[Hub.Data.selectedMutatePetName]or{}) do if p.Cure=="No Cure" then id=p.Id; break end end; if id then pcall(Hub.Services.Pet.Combine.mutate.InvokeServer,Hub.Services.Pet.Combine.mutate,id,{}) else Hub.State.autoMutateNoCure=false; break end; task.wait(1) end end) end})
+   
+    local SlimeSection = MachinesTab:AddSection("Slime")
+    local function getSlimeTypes() local types={}; local s,m=pcall(require,ReplicatedStorage.Data.SlimeRewards); if s and type(m)=='table' and m.Odds then for n in pairs(m.Odds) do table.insert(types,n) end else return{"Yellow","Blue","Purple","Red","Black","Green"} end; table.sort(types); return types end
+    Hub.UI.SlimePetDropdown = SlimeSection:AddDropdown("SlimePetDropdown",{Title="Select Pet to Slime",Values={},Multi=false,Searchable=true})
+    Hub.UI.SlimeColorDropdown = SlimeSection:AddDropdown("SlimeColorDropdown",{Title="Select Slimes to Keep",Values=getSlimeTypes(),Multi=true,Default={},Searchable=true})
+    SlimeSection:AddButton({Title="Refresh Slime Pets",Callback=function()local names=fetchSlimePets();Hub.UI.SlimePetDropdown:SetValues(names)end})
+    Hub.UI.SlimePetDropdown:OnChanged(function(v) Hub.Data.selectedSlimePetName=v end)
+    Hub.UI.SlimeColorDropdown:OnChanged(function(v) local c={}; for n,s in pairs(v) do if s then table.insert(c,n) end end; Hub.Data.selectedSlimeColors=c end)
+    local AutoSlimeToggle = SlimeSection:AddToggle("AutoSlimeToggle",{Title="Auto Slime",Default=false})
+    AutoSlimeToggle:OnChanged(function(e) Hub.State.autoSlime=e; if not e then return end; task.spawn(function() while Hub.State.autoSlime do if Hub.Data.selectedSlimePetName and #Hub.Data.selectedSlimeColors>0 then fetchSlimePets(); for _,p in ipairs(Hub.Data.slimePets[Hub.Data.selectedSlimePetName]or{}) do if not Hub.State.autoSlime then break end; if not table.find(Hub.Data.selectedSlimeColors,p.Slime) then if p.Slime~="None" then Hub.Services.Pet.Deslime.Purchase:FireServer(p.Id); task.wait(63); Hub.Services.Pet.Deslime.Claim:FireServer(); task.wait(1) end; Hub.Services.Pet.slimify:InvokeServer(p.Id); task.wait(1) end end end; task.wait(2) end end) end)
+
+    local EnchantSection=MachinesTab:AddSection("Rift Enchant")
+    Hub.UI.EnchantPetDropdown=EnchantSection:AddDropdown("EnchantPetDropdown",{Title="Select Pet",Values={},Multi=false,Searchable=true})
+    EnchantSection:AddButton({Title="Refresh Enchant Pets",Callback=function()local names=fetchEnchantPets();Hub.UI.EnchantPetDropdown:SetValues(names)end})
+    Hub.UI.EnchantLevelDropdown=EnchantSection:AddDropdown("EnchantLevelDropdown",{Title="Select Enchants to Keep",Values={"I","II","III","IV"},Multi=true,Default={},Searchable=true})
+    local AutoEnchantToggle=EnchantSection:AddToggle("AutoEnchantToggle",{Title="Auto Enchant",Default=false})
+    Hub.UI.EnchantPetDropdown:OnChanged(function(v)Hub.Data.selectedEnchantPetName=v end)
+    Hub.UI.EnchantLevelDropdown:OnChanged(function(v)local enchants={};for l,s in pairs(v)do if s then table.insert(enchants,"Rifted "..l)end end;Hub.Data.selectedEnchants=enchants end)
+    AutoEnchantToggle:OnChanged(function(e)Hub.State.autoEnchant=e;if not e then return end;task.spawn(function()local slots,done={[1]=nil,[2]=nil,[3]=nil},{};while Hub.State.autoEnchant do if Hub.Data.selectedEnchantPetName and #Hub.Data.selectedEnchants>0 then fetchEnchantPets();local inst=Hub.Data.enchantPets[Hub.Data.selectedEnchantPetName]or{};local allDone=true;for s=1,3 do if not slots[s]then for _,p in ipairs(inst)do if not done[p.Id]and not table.find(slots,p.Id)then local ce=p.Enchantment and p.Enchantment.Display;if table.find(Hub.Data.selectedEnchants,ce)then done[p.Id]=true else allDone=false;Hub.Services.RiftMachine.AddSlot:InvokeServer(tostring(s),p.Id);slots[s]=p.Id;break end end end end end;if allDone then AutoEnchantToggle:Set(false);break end;if slots[1]or slots[2]or slots[3]then task.wait(910);for s=1,3 do if slots[s]then Hub.Services.RiftMachine.Claim:InvokeServer(tostring(s));slots[s]=nil end end;task.wait(1)end end;task.wait(1)end end)end)
+    
+    local GoldPetsSection=MachinesTab:AddSection("Gold Pets");local GoldArmsSection=MachinesTab:AddSection("Gold Arms")
+    Hub.UI.GoldPetDropdown=GoldPetsSection:AddDropdown("GoldPetDropdown",{Title="Select Pet",Values={},Multi=false,Searchable=true})
+    GoldPetsSection:AddButton({Title="Refresh Goldable Pets",Callback=function()local names=fetchGoldableItems("Pet");Hub.UI.GoldPetDropdown:SetValues(names)end})
+    Hub.UI.GoldPetChanceDropdown=GoldPetsSection:AddDropdown("GoldPetChance",{Title="Gold Chance",Values={"20%","40%","60%","80%","100%"},Default="20%",Searchable=true})
+    Hub.UI.GoldPetDropdown:OnChanged(function(v)Hub.Data.selectedGoldPetName=v end);Hub.UI.GoldPetChanceDropdown:OnChanged(function(v)Hub.Data.selectedGoldPetChance=v end)
+    Hub.UI.AutoGoldPetsToggle=GoldPetsSection:AddToggle("AutoGoldPets",{Title="Auto Gold Pets",Default=false})
+    Hub.UI.GoldArmDropdown=GoldArmsSection:AddDropdown("GoldArmDropdown",{Title="Select Arm",Values={},Multi=false,Searchable=true})
+    GoldArmsSection:AddButton({Title="Refresh Goldable Arms",Callback=function()local names=fetchGoldableItems("Arm");Hub.UI.GoldArmDropdown:SetValues(names)end})
+    Hub.UI.GoldArmChanceDropdown=GoldArmsSection:AddDropdown("GoldArmChance",{Title="Gold Chance",Values={"20%","40%","60%","80%","100%"},Default="20%",Searchable=true})
+    Hub.UI.GoldArmDropdown:OnChanged(function(v)Hub.Data.selectedGoldArmName=v end);Hub.UI.GoldArmChanceDropdown:OnChanged(function(v)Hub.Data.selectedGoldArmChance=v end)
+    Hub.UI.AutoGoldArmsToggle=GoldArmsSection:AddToggle("AutoGoldArms",{Title="Auto Gold Arms",Default=false})
+    local function runAutoGold(type)task.spawn(function()while(type=="Pet"and Hub.State.autoGoldPets)or(type=="Arm"and Hub.State.autoGoldArms)do local n=type=="Pet"and Hub.Data.selectedGoldPetName or Hub.Data.selectedGoldArmName;local c=type=="Pet"and Hub.Data.selectedGoldPetChance or Hub.Data.selectedGoldArmChance;local d=type=="Pet"and Hub.Data.goldPets or Hub.Data.goldArms;if n and c then local items=d[n]or{};local r=math.floor(tonumber(string.match(c,"(%d+)"))/20);if #items>=r then local s={};for i=1,r do table.insert(s,items[i])end;if type=="Pet"then Hub.Services.Pet.goldify:InvokeServer(s)else Hub.Services.Arms.EvolveArms:InvokeServer(s)end;task.wait(1.5);fetchGoldableItems(type)end end;task.wait(1)end end)end
+    Hub.UI.AutoGoldPetsToggle:OnChanged(function(v)Hub.State.autoGoldPets=v;if v then runAutoGold("Pet")end end)
+    Hub.UI.AutoGoldArmsToggle:OnChanged(function(v)Hub.State.autoGoldArms=v;if v then runAutoGold("Arm")end end)
+
+    local VoidSection=MachinesTab:AddSection("Void")
+    Hub.UI.VoidPetDropdown=VoidSection:AddDropdown("VoidPetDropdown",{Title="Select Golden Pet to Void",Values={},Multi=false,Searchable=true})
+    VoidSection:AddButton({Title="Refresh Voidable Pets",Callback=function()local names=fetchVoidablePets();Hub.UI.VoidPetDropdown:SetValues(names)end})
+    local AutoVoidToggle=VoidSection:AddToggle("AutoVoidToggle",{Title="Auto Void",Default=false})
+    Hub.UI.VoidPetDropdown:OnChanged(function(v)Hub.Data.selectedVoidPetName=v end)
+    AutoVoidToggle:OnChanged(function(e)Hub.State.autoVoid=e;if not e then return end;task.spawn(function()while Hub.State.autoVoid do if Hub.Data.selectedVoidPetName then fetchVoidablePets();local toVoid=Hub.Data.voidPets[Hub.Data.selectedVoidPetName]or{};if #toVoid>0 then local hasIV=game.Players.LocalPlayer:GetAttribute("InstantVoid")==true;local waitTime=hasIV and 4 or 18002;local id=toVoid[1];Hub.Services.Pet.Void.onCraftToVoid:FireServer(id);task.wait(waitTime);Hub.Services.Pet.Void.onClaim:FireServer(id)end end;task.wait(1)end end)end)
+
+    local PristineSection=MachinesTab:AddSection("Pristine")
+
+    fetchPristineablePets=function()
+        local s,d=pcall(Hub.Services.Pet.getOwned.InvokeServer,Hub.Services.Pet.getOwned);
+        if not s or not d then Hub.Data.pristinePets={};return{} end
+        
+        local m,n={},{}
+        for id,i in pairs(d) do
+            if i.Tier=="Void" and not i.Locked then
+                local name=i.Key
+                if not m[name] then m[name]={}; table.insert(n,name) end
+                table.insert(m[name], {
+                    Id = id,
+                    CraftType = i.CraftType or "Baby",
+                    Shiny = tostring(i.Shiny),
+                    Slime = i.Slime or "None",
+                    Cure = i.Cure or "No Cure"
+                })
+            end
+        end
+        table.sort(n);
+        Hub.Data.pristinePets=m;
+        return n
+    end
+
+    Hub.UI.PristinePetDropdown=PristineSection:AddDropdown("PristinePetDropdown",{Title="Select Void Pet",Values={},Multi=false,Searchable=true})
+    PristineSection:AddButton({Title="Refresh Pristineable Pets",Callback=function()local names=fetchPristineablePets();Hub.UI.PristinePetDropdown:SetValues(names)end})
+    Hub.UI.PristineChanceDropdown=PristineSection:AddDropdown("PristineChance",{Title="Success Chance",Values={"33%","66%","100%"},Default="33%",Searchable=true})
+    local AutoPristineToggle=PristineSection:AddToggle("AutoPristineToggle",{Title="Auto Pristine",Default=false})
+    
+    Hub.UI.PristinePetDropdown:OnChanged(function(v)Hub.Data.selectedPristinePetName=v end)
+    Hub.UI.PristineChanceDropdown:OnChanged(function(v)Hub.Data.selectedPristineChance=v end)
+    
+    AutoPristineToggle:OnChanged(function(e)
+        Hub.State.autoPristine=e;
+        if not e then return end;
+        
+        task.spawn(function()
+            while Hub.State.autoPristine do
+                if Hub.Data.selectedPristinePetName then
+                    fetchPristineablePets()
+                    local availablePets = Hub.Data.pristinePets[Hub.Data.selectedPristinePetName] or {}
+                    local chance = Hub.Data.selectedPristineChance
+                    
+                    -- CORRECTED: The number of pets now matches the selected chance.
+                    local requiredCount
+                    if chance == "100%" then
+                        requiredCount = 3
+                    elseif chance == "66%" then
+                        requiredCount = 2
+                    else -- Handles 33% and is the default
+                        requiredCount = 1
+                    end
+
+                    if #availablePets >= requiredCount then
+                        local petsToSend = nil
+                        if requiredCount == 1 then
+                            -- For 33% chance, just grab the first available pet of that name.
+                            petsToSend = { availablePets[1].Id }
+                        else
+                            -- For 66% and 100%, group pets to find identical sets.
+                            local groupedPets = {}
+                            for _, petInfo in ipairs(availablePets) do
+                                local signature = string.format("%s/%s/%s/%s", petInfo.CraftType, petInfo.Shiny, petInfo.Slime, petInfo.Cure)
+                                if not groupedPets[signature] then groupedPets[signature] = {} end
+                                table.insert(groupedPets[signature], petInfo.Id)
+                            end
+
+                            for signature, ids in pairs(groupedPets) do
+                                if #ids >= requiredCount then
+                                    petsToSend = {}
+                                    for i = 1, requiredCount do
+                                        table.insert(petsToSend, ids[i])
+                                    end
+                                    break
+                                end
+                            end
+                        end
+                        
+                        if petsToSend then
+                            Hub.Services.Pet.Pristine:InvokeServer(petsToSend)
+                            task.wait(1.5)
+                        else
+                            task.wait(5)
+                        end
+                    else
+                        task.wait(5)
+                    end
+                else
+                    task.wait(1)
+                end
+            end
+        end)
+    end)
+    
+    local ForgeSection=MachinesTab:AddSection("Auto Forge")
+    local AutoForgeToggle=ForgeSection:AddToggle("AutoForge",{Title="Forge All Arms (Unlocked)",Default=false})
+    AutoForgeToggle:OnChanged(function(e)Hub.State.autoForge=e;if not e then return end;task.spawn(function()while Hub.State.autoForge do local s,d=pcall(Hub.Services.Arms.getOwned.InvokeServer,Hub.Services.Arms.getOwned);if s and d then local forgeable={};for id,info in pairs(d)do if not info.Locked and tonumber(info.StrengthTier or"1")<5 then local k=string.format("%s/%s/%s",info.ArmKey,info.Tier,tostring(info.StrengthTier));forgeable[k]=forgeable[k]or{};table.insert(forgeable[k],id)end end;for k,ids in pairs(forgeable)do if not Hub.State.autoForge then break end;if #ids>=2 then Hub.Services.Forge.Forge:InvokeServer(k,ids);task.wait(0.75)end end end;task.wait(2)end end)end)
+    
+    SaveManager:SetLibrary(Library);InterfaceManager:SetLibrary(Library);SaveManager:IgnoreThemeSettings();InterfaceManager:SetFolder("FluentScriptHub");SaveManager:SetFolder("FluentScriptHub/specific-game");Hub.UI.Window:SelectTab(1)
+end
+
+fetchGoliathPets=function()local s,d=pcall(Hub.Services.Pet.getOwned.InvokeServer,Hub.Services.Pet.getOwned);if not s or not d then Hub.Data.goliathPets={};return{}end;local m,n={},{};for id,i in pairs(d)do if i.CraftType=="Huge"and not i.Locked then local name=i.Key;if not m[name]then m[name]={};table.insert(n,name)end;table.insert(m[name],id)end end;table.sort(n);Hub.Data.goliathPets=m;return n end
+fetchMutatePets=function()local s,d=pcall(Hub.Services.Pet.getOwned.InvokeServer,Hub.Services.Pet.getOwned);if not s or not d then Hub.Data.mutatePets={};return{}end;local m,n={},{};for id,i in pairs(d)do if not i.Locked then local name=i.Key;if not m[name]then m[name]={};table.insert(n,name)end;table.insert(m[name],{Id=id,Cure=i.Cure or "No Cure"})end end;table.sort(n);Hub.Data.mutatePets=m;return n end
+fetchSlimePets=function()local s,d=pcall(Hub.Services.Pet.getOwned.InvokeServer,Hub.Services.Pet.getOwned);if not s or not d then Hub.Data.slimePets={};return{}end;local m,n={},{};for id,i in pairs(d)do if not i.Locked then local name=i.Key;if not m[name]then m[name]={};table.insert(n,name)end;table.insert(m[name],{Id=id,Slime=i.Slime or"None"})end end;table.sort(n);Hub.Data.slimePets=m;return n end
+fetchEnchantPets=function()local s,d=pcall(Hub.Services.Pet.getOwned.InvokeServer,Hub.Services.Pet.getOwned);if not s or not d then Hub.Data.enchantPets={};return{}end;local m,n={},{};for id,i in pairs(d)do if not i.Locked then local name=i.Key;if not m[name]then m[name]={};table.insert(n,name)end;table.insert(m[name],{Id=id,Enchantment=i.Enchantment})end end;table.sort(n);Hub.Data.enchantPets=m;return n end
+fetchGoldableItems=function(type)local srv=type=="Pet"and Hub.Services.Pet.getOwned or Hub.Services.Arms.getOwned;local s,d=pcall(srv.InvokeServer,srv);if not s or not d then return{}end;local m,n={},{};for id,i in pairs(d)do if i.Tier=="Normal"and not i.Locked then local name=type=="Pet"and i.Key or i.ArmKey;if not m[name]then m[name]={};table.insert(n,name)end;table.insert(m[name],id)end end;table.sort(n);if type=="Pet"then Hub.Data.goldPets=m else Hub.Data.goldArms=m end;return n end
+fetchVoidablePets=function()local s,d=pcall(Hub.Services.Pet.getOwned.InvokeServer,Hub.Services.Pet.getOwned);if not s or not d then Hub.Data.voidPets={};return{}end;local m,n={},{};for id,i in pairs(d)do if i.Tier=="Golden"and not i.Locked then local name=i.Key;if not m[name]then m[name]={};table.insert(n,name)end;table.insert(m[name],id)end end;table.sort(n);Hub.Data.voidPets=m;return n end
+fetchPristineablePets=function()local s,d=pcall(Hub.Services.Pet.getOwned.InvokeServer,Hub.Services.Pet.getOwned);if not s or not d then Hub.Data.pristinePets={};return{}end;local m,n={},{};for id,i in pairs(d)do if i.Tier=="Void"and not i.Locked then local name=i.Key;if not m[name]then m[name]={};table.insert(n,name)end;table.insert(m[name],id)end end;table.sort(n);Hub.Data.pristinePets=m;return n end
+
+local function fetchAllInitialData()
+    local goliathNames,mutateNames,slimeNames,enchantNames=fetchGoliathPets(),fetchMutatePets(),fetchSlimePets(),fetchEnchantPets()
+    local goldPetNames,goldArmNames=fetchGoldableItems("Pet"),fetchGoldableItems("Arm")
+    local voidNames,pristineNames=fetchVoidablePets(),fetchPristineablePets()
+    Hub.UI.GoliathPetDropdown:SetValues(goliathNames)
+    Hub.UI.MutatePetDropdown:SetValues(mutateNames)
+    Hub.UI.SlimePetDropdown:SetValues(slimeNames)
+    Hub.UI.EnchantPetDropdown:SetValues(enchantNames)
+    Hub.UI.GoldPetDropdown:SetValues(goldPetNames)
+    Hub.UI.GoldArmDropdown:SetValues(goldArmNames)
+    Hub.UI.VoidPetDropdown:SetValues(voidNames)
+    Hub.UI.PristinePetDropdown:SetValues(pristineNames)
+end
+
+BuildUI()
+fetchAllInitialData()
