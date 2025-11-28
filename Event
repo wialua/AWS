@@ -1,0 +1,2339 @@
+
+local extraEggNames = {"Lantern", "Bat", "Hell", "Cobweb", "Balloon", "Popcorn"}
+
+local function getEggNames()
+    local eggNamesSet = {}
+    local zones = workspace:FindFirstChild("Zones")
+
+    if zones then
+        for _, world in pairs(zones:GetChildren()) do
+            -- Only look at worlds with no numbers in their name
+            if world:IsA("Folder") and not world.Name:match("%d") then
+                local interactables = world:FindFirstChild("Interactables")
+                if interactables then
+                    local eggs = interactables:FindFirstChild("Eggs")
+                    if eggs then
+                        for _, egg in pairs(eggs:GetChildren()) do
+                            if not egg.Name:lower():find("rewind") then
+                                local name = egg.Name
+                                name = name:gsub("%s*[Ee][Gg][Gg]%s*$", "") -- remove "Egg" at end
+                                name = name:match("^%s*(.-)%s*$") -- trim spaces
+                                eggNamesSet[name] = true
+                            end
+                        end
+                    end
+                end
+            end
+        end
+    end
+
+    -- ✅ Add all extra names from the table
+    for _, extraName in ipairs(extraEggNames) do
+        eggNamesSet[extraName] = true
+    end
+
+    -- Convert set to sorted list
+    local eggNames = {}
+    for name in pairs(eggNamesSet) do
+        table.insert(eggNames, name)
+    end
+    table.sort(eggNames)
+
+    return eggNames
+end
+
+
+
+loadstring(game:HttpGet("https://raw.githubusercontent.com/SenhorLDS/ProjectLDSHUB/refs/heads/main/Anti%20AFK"))()
+local Library = loadstring(game:HttpGet("https://github.com/ActualMasterOogway/Fluent-Renewed/releases/latest/download/Fluent.luau"))()
+local SaveManager = loadstring(game:HttpGet("https://raw.githubusercontent.com/bigbeanscripts/Pet-Warriors/refs/heads/main/test"))()
+local InterfaceManager = loadstring(game:HttpGet("https://raw.githubusercontent.com/ActualMasterOogway/Fluent-Renewed/master/Addons/InterfaceManager.luau"))()
+
+local Window = Library:Window{
+    Title = "Halloween Event",
+    SubTitle = "By Wia",
+    TabWidth = 160,
+    Size =  UDim2.fromOffset(580, 460),
+    Resize = false, 
+    Theme = "Darker",
+    MinimizeKey = Enum.KeyCode.LeftShift
+}
+
+
+local Tabs = {
+    Settings = Window:AddTab({ Title = "Settings", Icon = "settings" }),
+    AutoFight = Window:AddTab({ Title = "Main", Icon = "crown" }),
+    Eggs = Window:AddTab({ Title = "Eggs", Icon = "egg" }),
+    Merchant = Window:AddTab({ Title = "Merchant", Icon = "phosphor-shopping-cart-fill" }),
+    Trick = Window:AddTab({ Title = "Halloween", Icon = "ghost" }),
+    Wheel = Window:AddTab({ Title = "Wheel", Icon = "ferris-wheel" }),
+    Tower = Window:AddTab({ Title = "Tower", Icon = "castle" }),
+    Minigame = Window:AddTab({ Title = "Minigame", Icon = "phosphor-balloon-bold" })
+}
+
+
+
+local PlaytimeSection = Tabs.AutoFight:AddSection("Playtime Pass")
+
+local AutoPlaytimeToggle = PlaytimeSection:AddToggle("AutoPlaytime", {
+    Title = "Auto Claim Playtime Pass",
+    Default = false
+})
+
+AutoPlaytimeToggle:OnChanged(function()
+    if AutoPlaytimeToggle.Value then
+        -- Claim rewards immediately when enabled
+        for i = 1, 12 do
+            local args = {
+                [1] = "Free",
+                [2] = i
+            }
+            game:GetService("ReplicatedStorage").Packages.Knit.Services.EventPassService.RF.ClaimReward:InvokeServer(unpack(args))
+        end
+        
+        -- Start reset/claim loop
+        spawn(function()
+            while AutoPlaytimeToggle.Value do
+                wait(60) -- Wait before reset
+                
+                -- Reset pass
+                game:GetService("ReplicatedStorage").Packages.Knit.Services.EventPassService.RF.Reset:InvokeServer()
+                
+                -- Claim all rewards after reset
+                for i = 1, 12 do
+                    local args = {
+                        [1] = "Free",
+                        [2] = i
+                    }
+                    game:GetService("ReplicatedStorage").Packages.Knit.Services.EventPassService.RF.ClaimReward:InvokeServer(unpack(args))
+                end
+            end
+        end)
+    end
+end)
+
+local function GetCurrentZone()
+    local player = game.Players.LocalPlayer
+
+    if player:GetAttribute("ZoneAbandonedThemePark") then
+        return "AbandonedThemePark"
+    elseif player:GetAttribute("ZoneMansionUnderworld") then
+        return "MansionUnderworld"
+    elseif player:GetAttribute("ZoneMansionBasement") then
+        return "MansionBasement"
+    elseif player:GetAttribute("ZoneHauntedMansion") then
+        return "HauntedMansion"
+    elseif player:GetAttribute("ZoneSpookyNeighborhood") then
+        return "SpookyNeighborhood"
+    end
+
+    -- Fallback: look through workspace zones
+    local glassBridgeZone = workspace.Zones:FindFirstChild("DesertMines")
+    if glassBridgeZone then return glassBridgeZone.Name end
+
+    local frontmanZone = workspace.Zones:FindFirstChild("MinersDreamland")
+    if frontmanZone then return frontmanZone.Name end
+
+    return nil
+end
+
+
+local function GetValidZone(trainingType)
+    local zone = GetCurrentZone()
+    local fallback = "SpookyNeighborhood"
+    local replicatedStorage = game:GetService("ReplicatedStorage")
+
+    local function hasData(moduleName)
+        local success, module = pcall(function()
+            return require(replicatedStorage.Data[moduleName])
+        end)
+        return success and module and (module[zone] or module[fallback])
+    end
+
+    if trainingType == "PunchBags" then
+        if workspace.Zones:FindFirstChild(zone)
+            and workspace.Zones[zone]:FindFirstChild("Interactables")
+            and workspace.Zones[zone].Interactables:FindFirstChild("Training")
+            and workspace.Zones[zone].Interactables.Training:FindFirstChild("PunchBags") then
+            return zone
+        elseif workspace.Zones:FindFirstChild(fallback)
+            and workspace.Zones[fallback]:FindFirstChild("Interactables")
+            and workspace.Zones[fallback].Interactables:FindFirstChild("Training")
+            and workspace.Zones[fallback].Interactables.Training:FindFirstChild("PunchBags") then
+            return fallback
+        else
+            return fallback
+        end
+    elseif trainingType == "Dumbells" then
+        return hasData("Dumbells") and (hasData("Dumbells")[zone] and zone or fallback) or fallback
+    elseif trainingType == "Grips" then
+        return hasData("Grips") and (hasData("Grips")[zone] and zone or fallback) or fallback
+    elseif trainingType == "Barbells" then
+        return hasData("Barbells") and (hasData("Barbells")[zone] and zone or fallback) or fallback
+    end
+
+    return fallback
+end
+
+
+local function GetBestDuckBag()
+    local player = game.Players.LocalPlayer
+    local currentZone = GetValidZone(currentTrainingType)
+    local fallbackZone = "SpookyNeighborhood"
+
+    if not currentZone then
+        return "Tier1"
+    end
+
+    local knuckleStrength = player:GetAttribute("TotalHalloween25Knuckles") or 0
+    local punchBagData = require(game:GetService("ReplicatedStorage").Data.PunchBags)
+
+    if player:GetAttribute("VIP") == true then
+        return "VIP"
+    end
+
+    local zoneList = { currentZone, fallbackZone }
+
+    for _, zone in ipairs(zoneList) do
+        local bestTier = "Tier1"
+        local highestRequired = 0
+
+        if punchBagData and punchBagData[zone] then
+            for tier, data in pairs(punchBagData[zone]) do
+                if data.StrengthRequired and
+                   knuckleStrength >= data.StrengthRequired and
+                   data.StrengthRequired > highestRequired then
+                    bestTier = tier
+                    highestRequired = data.StrengthRequired
+                end
+            end
+            -- Return best tier found in this zone
+            return bestTier
+        end
+    end
+end
+
+
+local function GetBestDuckEquipment(equipmentType)
+    local player = game.Players.LocalPlayer
+    local currentZone = GetCurrentZone()
+    local fallbackZone = "SpookyNeighborhood"
+
+    if not currentZone then
+        return { equipment = fallbackZone .. "1", zone = fallbackZone }
+    end
+
+    -- Determine attribute and data module based on type
+    local dataModule
+    local attrMap = {
+        Dumbells = "TotalHalloween25Bicep",
+        Grips = "TotalHalloween25Grip",
+        Barbells = "TotalHalloween25Bicep"
+    }
+
+    if equipmentType ~= "Dumbells" and equipmentType ~= "Grips" and equipmentType ~= "Barbells" then
+        equipmentType = "Dumbells"
+    end
+
+    dataModule = equipmentType
+    local equipmentData
+
+    pcall(function()
+        equipmentData = require(game:GetService("ReplicatedStorage").Data[dataModule])
+    end)
+
+    if not equipmentData then
+        return { equipment = fallbackZone .. "1", zone = fallbackZone }
+    end
+
+    -- Zone priority list
+    local zoneList = { currentZone, fallbackZone }
+
+    for _, zone in ipairs(zoneList) do
+        local defaultEquipment = zone .. "1"
+        local bestEquipment = defaultEquipment
+        local highestRequired = 0
+
+        -- Use the correct attribute for fallback zone too
+        local statValue = player:GetAttribute(attrMap[equipmentType]) or 0
+
+        if equipmentData[zone] then
+            for name, data in pairs(equipmentData[zone]) do
+                if data.StrengthRequired and 
+                   statValue >= data.StrengthRequired and 
+                   data.StrengthRequired > highestRequired then
+                    bestEquipment = name
+                    highestRequired = data.StrengthRequired
+                end
+            end
+            return { equipment = bestEquipment, zone = zone }
+        end
+    end
+
+    return { equipment = fallbackZone .. "1", zone = fallbackZone }
+end
+
+    
+
+-- Add Training Section
+local TrainSection = Tabs.AutoFight:AddSection("Auto Train")
+
+local TrainingDropdown = Tabs.AutoFight:AddDropdown("TrainingSelect", {
+    Title = "Select Training Type",
+    Values = {"Dumbells", "PunchBags", "Grips", "Barbells"}, 
+    Multi = false,
+    Default = "Dumbells"
+})
+
+local AutoTrainToggle = Tabs.AutoFight:AddToggle("AutoTrain", {
+    Title = "Auto Train",
+    Description = "If this gets an error, turn the toggle off and on again. It occurs when you switch training types with the toggle on :)",
+    Default = false
+})
+
+-- Variable to store the current training equipment type
+local currentTrainingType = nil
+
+AutoTrainToggle:OnChanged(function()
+    if AutoTrainToggle.Value then
+        -- Store the selected training type when starting
+        currentTrainingType = TrainingDropdown.Value
+        
+        spawn(function()
+            local currentZone = GetCurrentZone()
+            
+            if not currentZone then
+                return
+            end
+            
+            if currentTrainingType == "Dumbells" then
+                -- Function to equip Dumbells
+                local function equipDumbells()
+                    local result = GetBestDuckEquipment("Dumbells")
+                    local equipment = result.equipment
+                    local equipZone = result.zone
+                    local args = {
+                        [1] = equipZone,
+                        [2] = "Dumbells", 
+                        [3] = equipment
+                    }
+                    game:GetService("ReplicatedStorage").Packages.Knit.Services.ToolService.RE.onGuiEquipRequest:FireServer(unpack(args))
+                end
+
+                -- Equip immediately
+                equipDumbells()
+
+                -- Click loop (every 0.6 seconds for Dumbells)
+                spawn(function()
+                    while AutoTrainToggle.Value and currentTrainingType == "Dumbells" and TrainingDropdown.Value == "Dumbells" do
+                        game:GetService("ReplicatedStorage").Packages.Knit.Services.ToolService.RE.onClick:FireServer()
+                        wait(0.6)
+                    end
+                end)
+
+                -- Re-equip loop (every 5 seconds)
+                while AutoTrainToggle.Value and currentTrainingType == "Dumbells" and TrainingDropdown.Value == "Dumbells" do
+                    wait(5) -- Wait 5 seconds before re-equipping
+                    if AutoTrainToggle.Value and currentTrainingType == "Dumbells" and TrainingDropdown.Value == "Dumbells" then
+                        equipDumbells()
+                    end
+                end
+                
+            elseif currentTrainingType == "Grips" then
+                -- Function to equip Grips
+                local function equipGrips()
+                    local result = GetBestDuckEquipment("Grips")
+                    local equipment = result.equipment
+                    local equipZone = result.zone
+                    local args = {
+                        [1] = equipZone,
+                        [2] = "Grips", 
+                        [3] = equipment
+                    }
+                    game:GetService("ReplicatedStorage").Packages.Knit.Services.ToolService.RE.onGuiEquipRequest:FireServer(unpack(args))
+                end
+
+                -- Equip immediately
+                equipGrips()
+
+                -- Click loop (every 0.6 seconds for Grips)
+                spawn(function()
+                    while AutoTrainToggle.Value and currentTrainingType == "Grips" and TrainingDropdown.Value == "Grips" do
+                        game:GetService("ReplicatedStorage").Packages.Knit.Services.ToolService.RE.onClick:FireServer()
+                        wait(0.6)
+                    end
+                end)
+
+                -- Re-equip loop (every 5 seconds)
+                while AutoTrainToggle.Value and currentTrainingType == "Grips" and TrainingDropdown.Value == "Grips" do
+                    wait(5) -- Wait 5 seconds before re-equipping
+                    if AutoTrainToggle.Value and currentTrainingType == "Grips" and TrainingDropdown.Value == "Grips" then
+                        equipGrips()
+                    end
+                end
+                
+            elseif currentTrainingType == "Barbells" then
+                -- Function to equip Barbells
+                local function equipBarbells()
+                    local result = GetBestDuckEquipment("Barbells")
+                    local equipment = result.equipment
+                    local equipZone = result.zone
+                    local args = {
+                        [1] = equipZone,
+                        [2] = "Barbells", 
+                        [3] = equipment
+                    }
+                    game:GetService("ReplicatedStorage").Packages.Knit.Services.ToolService.RE.onGuiEquipRequest:FireServer(unpack(args))
+                end
+
+                -- Equip immediately
+                equipBarbells()
+
+                -- Click loop (every 1.55 seconds for Barbells)
+                spawn(function()
+                    while AutoTrainToggle.Value and currentTrainingType == "Barbells" and TrainingDropdown.Value == "Barbells" do
+                        game:GetService("ReplicatedStorage").Packages.Knit.Services.ToolService.RE.onClick:FireServer()
+                        wait(1.55)
+                    end
+                end)
+
+                -- Re-equip loop (every 5 seconds)
+                while AutoTrainToggle.Value and currentTrainingType == "Barbells" and TrainingDropdown.Value == "Barbells" do
+                    wait(5) -- Wait 5 seconds before re-equipping
+                    if AutoTrainToggle.Value and currentTrainingType == "Barbells" and TrainingDropdown.Value == "Barbells" then
+                        equipBarbells()
+                    end
+                end
+            elseif currentTrainingType == "Pull up bar" then
+                -- Add Pull up bar handling
+                spawn(function()
+                    while AutoTrainToggle.Value and currentTrainingType == "Pull up bar" and TrainingDropdown.Value == "Pull up bar" do
+                        local statsArgs = {
+                            [1] = "17",
+                            [2] = "Tier4"
+                        }
+                        game:GetService("ReplicatedStorage").Packages.Knit.Services.PullupBarService.RE.onGiveStats:FireServer(unpack(statsArgs))
+                        wait(1.55) -- Pull up bar every 1.55 seconds
+                    end
+                end)
+            else -- PunchBags
+                spawn(function() 
+                    local lastTeleport = 0
+                    while AutoTrainToggle.Value and currentTrainingType == "PunchBags" and TrainingDropdown.Value == "PunchBags" do
+                        local tier = GetBestDuckBag()
+                        local validZone = GetValidZone("PunchBags")
+                        
+                        -- Try to get the bag from workspace using the valid zone
+                        local bag = workspace.Zones[validZone].Interactables.Training.PunchBags:FindFirstChild(tier)
+                        
+                        if bag then
+                            -- Only teleport every 5 seconds
+                            local currentTime = tick()
+                            if currentTime - lastTeleport >= 5 then
+                                local bagCFrame = bag:GetPivot()
+                                game.Players.LocalPlayer.Character:PivotTo(bagCFrame * CFrame.new(0, 0, -5))
+                                lastTeleport = currentTime
+                            end
+                            
+                            -- Use the punch bag service every 0.2 seconds for knuckles (punch bags)
+                            local args = {
+                                [1] = validZone,
+                                [2] = tier,
+                                [3] = game.Players.LocalPlayer:GetAttribute("VIP") == true
+                            }
+                            game:GetService("ReplicatedStorage").Packages.Knit.Services.PunchBagService.RE.onGiveStats:FireServer(unpack(args))
+                        end
+                        wait(0.2)
+                    end
+                end)
+            end
+        end)
+    else
+        -- Clear the current training type when stopping
+        currentTrainingType = nil
+    end
+end)
+
+TrainingDropdown:OnChanged(function()
+    if AutoTrainToggle.Value then
+        AutoTrainToggle:SetValue(false) -- Turn off current training
+        wait(0.1) -- Short delay to ensure loops are terminated
+        AutoTrainToggle:SetValue(true) -- Turn on with new selection
+    end
+end)
+
+
+-- UI section
+local FightSection = Tabs.AutoFight:AddSection("Auto Fight")
+
+local npcLocations = {
+    SpookyNeighborhood = workspace.GameObjects.ArmWrestling.SpookyNeighborhood.NPC,
+    HauntedMansion = workspace.GameObjects.ArmWrestling.HauntedMansion.NPC,
+    MansionBasement = workspace.GameObjects.ArmWrestling.MansionBasement.NPC,
+    MansionUnderworld = workspace.GameObjects.ArmWrestling.MansionUnderworld.NPC,
+    AbandonedThemePark = workspace.GameObjects.ArmWrestling.AbandonedThemePark.NPC,
+}
+
+local modelNames = {}
+
+-- Gather NPC names from all locations
+for _, path in pairs(npcLocations) do
+    for _, npc in pairs(path:GetChildren()) do
+        if npc:IsA("Model") then
+            table.insert(modelNames, npc.Name)
+        end
+    end
+end
+
+table.sort(modelNames)
+
+-- Dropdown
+local modelDropdown = Tabs.AutoFight:AddDropdown("ModelDropdown", {
+    Title = "Select Boss",
+    Values = modelNames,
+    Multi = false,
+    Searchable = true,
+    Default = modelNames[1] or "",
+})
+
+-- Auto Click toggle
+local AutoClickToggle = Tabs.AutoFight:AddToggle("AutoClick", {
+    Title = "Auto Click/Crit",
+    Description = "Allows you to win fights over 5x as fast.",
+    Default = false
+})
+
+-- Auto Fight toggle
+local AutoFightToggle = Tabs.AutoFight:AddToggle("AutoFight", {
+    Title = "Auto Fight",
+    Description = "Automatically starts fights with the selected boss (to beat bosses much faster, enable the Auto Click/Crit toggle).",
+    Default = false
+})
+
+-- Block the GameAnalyticsError remote event from firing (run once at startup)
+pcall(function()
+    local gameAnalyticsError = game:GetService("ReplicatedStorage"):FindFirstChild("GameAnalyticsError")
+    if gameAnalyticsError then
+        gameAnalyticsError.FireServer = function(self, ...)
+            return
+        end
+    end
+end)
+
+
+local AlwaysWin = Tabs.AutoFight:AddButton({
+    Title = "Always Win",
+    Description = "This makes it impossible to lose, rejoining resets this.",
+    Callback = function()
+        coroutine.resume(coroutine.create(function()
+            local armWrestle = require(game:GetService("ReplicatedStorage").Controllers.Fighting.ArmWrestleController)
+            
+            -- Method 1: Hook the IncrementPower function
+            local originalIncrementPower = armWrestle.IncrementPower
+            armWrestle.IncrementPower = function(self, amount)
+                -- Always increment by a large positive amount
+                originalIncrementPower(self, math.abs(amount or 1) * 1000)
+            end
+            
+            -- Method 2: Continuously set health to max (more reliable)
+            spawn(function()
+                while armWrestle.Fighting do
+                    if armWrestle.Health and armWrestle.MaxHealth then
+                        armWrestle.Health = armWrestle.MaxHealth
+                    end
+                    wait(0.1)
+                end
+            end)
+            
+            -- Method 3: Override the UpdateFight function to prevent NPC power
+            local originalUpdateFight = armWrestle.UpdateFight
+            armWrestle.UpdateFight = function(self)
+                -- Do nothing - prevents NPC from gaining power
+            end
+            
+        end))
+    end
+})
+
+
+
+local notefight = Tabs.AutoFight:Paragraph("Note", {
+    Title = "Note",
+    Content = "If you get an error when you turn the toggles on, try turning them off and on again, this wont effect anything. Furthermore, the speeds in which you win, is further increased if you launch the script twice (Open it enable the toggles, disable them, and then re-execute the script.) ",
+    TitleAlignment = "Middle",
+    ContentAlignment = Enum.TextXAlignment.Left
+})
+
+-- Services
+local KnitServices = game:GetService("ReplicatedStorage").Packages.Knit.Services
+local ArmwrestleServiceRF = KnitServices:WaitForChild("ArmWrestleService"):WaitForChild("RF")
+local ZoneService = KnitServices:WaitForChild("ZoneService"):WaitForChild("RE")
+
+-- Variables
+local autoClickThreads = {}
+local autoFightThreads = {}
+local cleanupConnections = {}
+local lastZoneCheck = 0
+
+-- Function to teleport to the correct zone for an NPC
+local function teleportToNpcZone(npcName)
+    local player = game.Players.LocalPlayer
+    local playerCurrentZone = player:GetAttribute("CurrentZone")
+    
+    -- Find which zone the NPC is in
+    local npcZone = nil
+    for zoneName, path in pairs(npcLocations) do
+        if path:FindFirstChild(npcName) then
+            npcZone = zoneName == "MinersDreamland" and "MinersDreamland" or zoneName
+            break
+        end
+    end
+    
+    -- If NPC zone found and different from current zone, teleport
+    if npcZone and playerCurrentZone ~= npcZone then
+        -- Get the teleport destination
+        local teleportDest = workspace.Zones[npcZone].Interactables.Teleports.Locations.Spawn
+        
+        if teleportDest then
+            -- Teleport to the appropriate zone
+            local args = {
+                [1] = teleportDest
+            }
+            
+            ZoneService.teleport:FireServer(unpack(args))
+            
+            -- Wait for teleport to complete
+            task.wait(2.5)
+
+            return true
+        end
+    end
+    return npcZone ~= nil
+end
+
+-- Cleanup function to clear pending requests
+local function cleanupRequests()
+    -- Get memory info before cleanup
+    local memoryBefore = gcinfo()
+    
+    -- Force garbage collection to clear pending requests
+    collectgarbage("count")
+    
+    -- Get memory info after cleanup
+    local memoryAfter = gcinfo()
+    
+    pcall(function()
+        -- Clear any pending remote calls by briefly disconnecting
+        local temp = ArmwrestleServiceRF
+        task.wait(0.01)
+    end)
+end
+
+-- Auto Click toggle handler
+AutoClickToggle:OnChanged(function()
+    if AutoClickToggle.Value then
+        -- Stop existing threads and cleanup
+        for _, thread in pairs(autoClickThreads) do
+            if typeof(thread) == "thread" then
+                task.cancel(thread)
+            elseif typeof(thread) == "table" then
+                thread.active = false
+            end
+        end
+        autoClickThreads = {}
+        
+        -- Stop any existing cleanup connections
+        if cleanupConnections.autoClick then
+            cleanupConnections.autoClick:Disconnect()
+        end
+        
+        -- Spawn new click threads
+        task.spawn(function()
+            for i = 1, 500 do
+                local threadData = { active = true }
+                table.insert(autoClickThreads, threadData)
+                
+                task.spawn(function()
+                    while threadData.active and AutoClickToggle.Value do
+                        pcall(function()
+                            ArmwrestleServiceRF:WaitForChild("RequestClick"):InvokeServer()
+                            ArmwrestleServiceRF:WaitForChild("RequestCritHit"):InvokeServer()
+                        end)
+                        task.wait()
+                    end
+                end)
+                
+                task.wait(0.001) -- Small delay between thread spawns to prevent all spawning at once
+            end
+        end)
+        
+        -- Start cleanup timer for auto click
+        cleanupConnections.autoClick = task.spawn(function()
+            while AutoClickToggle.Value do
+                task.wait(5) -- Wait 5 seconds
+                if AutoClickToggle.Value then
+                    cleanupRequests()
+                end
+            end
+        end)
+    else
+        -- Disable all click threads
+        for _, thread in pairs(autoClickThreads) do
+            if typeof(thread) == "thread" then
+                task.cancel(thread)
+            elseif typeof(thread) == "table" then
+                thread.active = false
+            end
+        end
+        autoClickThreads = {}
+        
+        -- Stop cleanup timer
+        if cleanupConnections.autoClick then
+            task.cancel(cleanupConnections.autoClick)
+            cleanupConnections.autoClick = nil
+        end
+        
+        -- Final cleanup
+        cleanupRequests()
+    end
+end)
+
+-- Auto Fight toggle handler
+AutoFightToggle:OnChanged(function()
+    if AutoFightToggle.Value then
+        -- First try to teleport to correct zone if needed
+        local selectedName = modelDropdown.Value
+        teleportToNpcZone(selectedName)
+        
+        -- Stop previous threads and cleanup
+        for _, flag in pairs(autoFightThreads) do
+            flag.active = false
+        end
+        autoFightThreads = {}
+        
+        -- Stop any existing cleanup connections
+        if cleanupConnections.autoFight then
+            cleanupConnections.autoFight:Disconnect()
+        end
+        
+        -- Spawn threads for repeated boss fights
+        for i = 1, 500 do
+            local threadFlag = { active = true }
+            table.insert(autoFightThreads, threadFlag)
+            
+            task.spawn(function()
+                while threadFlag.active and AutoFightToggle.Value do
+                    local selectedName = modelDropdown.Value
+                    if selectedName then
+                        -- Check if we need to teleport (periodically)
+                        local currentTime = tick()
+                        if currentTime - lastZoneCheck > 10 then
+                            teleportToNpcZone(selectedName)
+                            lastZoneCheck = currentTime
+                        end
+                        
+                        -- Request fight with selected NPC
+                        local args = {
+                            [1] = selectedName
+                        }
+                        
+                        pcall(function()
+                            ArmwrestleServiceRF:WaitForChild("RequestStartFight"):InvokeServer(unpack(args))
+                        end)
+                    end
+                    task.wait(0.01)
+                end
+            end)
+            
+            task.wait(0.001) -- Small delay between thread spawns
+        end
+        
+        -- Start cleanup timer for auto fight
+        cleanupConnections.autoFight = task.spawn(function()
+            while AutoFightToggle.Value do
+                task.wait(5) -- Wait 5 seconds
+                if AutoFightToggle.Value then
+                    cleanupRequests()
+                end
+            end
+        end)
+    else
+        -- Stop all fight threads
+        for _, flag in pairs(autoFightThreads) do
+            flag.active = false
+        end
+        autoFightThreads = {}
+        
+        -- Stop cleanup timer
+        if cleanupConnections.autoFight then
+            task.cancel(cleanupConnections.autoFight)
+            cleanupConnections.autoFight = nil
+        end
+        
+        -- Final cleanup
+        cleanupRequests()
+    end
+end)
+
+-- Add zone check when dropdown selection changes
+modelDropdown:OnChanged(function()
+    if AutoFightToggle.Value then
+        local selectedName = modelDropdown.Value
+        teleportToNpcZone(selectedName)
+        lastZoneCheck = tick()
+    end
+end)
+
+local function aggressiveCleanup()
+    -- Get memory info before cleanup
+    local memoryBefore = gcinfo()
+    
+    -- Method 1: Force disconnect and reconnect to service
+    pcall(function()
+        local oldService = ArmwrestleServiceRF
+        ArmwrestleServiceRF = KnitServices:WaitForChild("ArmWrestleService"):WaitForChild("RF")
+    end)
+    
+    -- Method 2: Clear all pending coroutines
+    collectgarbage("count")
+    
+    -- Method 3: Brief pause to let network catch up
+    task.wait(0.1)
+    
+    -- Get memory info after cleanup
+    local memoryAfter = gcinfo()  
+end
+
+local EggSection = Tabs.Eggs:AddSection("Eggs")
+
+-- Hatch Amount Dropdown
+local HatchAmountDropdown = Tabs.Eggs:AddDropdown("HatchAmount", {
+    Title = "Hatch Amount",
+    Values = {"1x", "3x", "8x", "30x", "Max"},
+    Multi = false,
+    Searchable = true,
+    Default = "1x"
+})
+
+-- Egg Selection Dropdown (Populated Dynamically)
+local eggNames = getEggNames()
+local EggDropdown = Tabs.Eggs:AddDropdown("EggSelect", {
+    Title = "Select Egg",
+    Values = eggNames,
+    Multi = false,
+    Searchable = true,
+    Default = eggNames[1] or "None"
+})
+
+-- Auto Hatch Toggle
+local AutoHatchToggle = Tabs.Eggs:AddToggle("AutoHatch", {
+    Title = "Auto Hatch",
+    Default = false
+})
+
+AutoHatchToggle:OnChanged(function()
+    if AutoHatchToggle.Value then
+        spawn(function()
+            while AutoHatchToggle.Value do
+                local selectedEgg = EggDropdown.Value
+                local hatchMultiplier = HatchAmountDropdown.Value
+
+                local args = {}
+
+                if hatchMultiplier == "1x" then
+                    args = {selectedEgg, nil, nil, false, nil}
+                elseif hatchMultiplier == "3x" then
+                    args = {selectedEgg, nil, true, false}
+                elseif hatchMultiplier == "8x" then
+                    args = {selectedEgg, nil, false, true, true}
+                elseif hatchMultiplier == "30x" or hatchMultiplier == "Max" then
+                    args = {selectedEgg, nil, nil, false, nil, true}
+                end
+
+                -- Invoke server call to hatch egg
+                game:GetService("ReplicatedStorage").Packages.Knit.Services.EggService.RF.purchaseEgg:InvokeServer(unpack(args))
+
+                wait(0.25)
+            end
+        end)
+    end
+end)
+
+
+-- Create SuperRB Section
+local EventSection = Tabs.Merchant:AddSection("Individual Items")
+
+-- Add Load Script Button
+EventSection:AddButton({
+    Title = "Load better Merchant script",
+    Description = "This allows you to select individual items, but MAY cause lag.",
+    Callback = function()
+        loadstring(game:HttpGet("https://raw.githubusercontent.com/bigbeanscripts/SeperateMerchant/refs/heads/main/LessLag"))()
+    end
+})
+
+local MerchantSection = Tabs.Merchant:AddSection("Halloween Merchant")
+
+local BlackMarketDropdown = Tabs.Merchant:AddDropdown("BlackMarketDropdown", {
+    Title = "Select Merchant Slot(s)",
+    Values = {1, 2, 3, 4, 5},
+    Multi = true,
+    Default = {}
+})
+
+local AutoBuyToggle = Tabs.Merchant:AddToggle("AutoBuyToggle", {
+    Title = "Auto Buy (Selected Slots)",
+    Default = false
+})
+
+AutoBuyToggle:OnChanged(function()
+    if AutoBuyToggle.Value then
+        spawn(function()
+            while true do
+                if not AutoBuyToggle.Value then break end
+                -- Buy 3 times
+                for i = 1, 3 do
+                    for number, isSelected in pairs(BlackMarketDropdown.Value) do
+                        if isSelected then
+                            local args = {
+                                [1] = "Halloween Merchant",
+                                [2] = number
+                            }
+                            game:GetService("ReplicatedStorage").Packages.Knit.Services.LimitedMerchantService.RF.BuyItem:InvokeServer(unpack(args))
+                            wait(1)
+                        end
+                    end
+                end
+                wait(30) -- Wait 30 seconds before next cycle
+            end
+        end)
+    end
+end)
+
+local MerchantSection1 = Tabs.Merchant:AddSection("Carnival Merchant")
+
+local BlackMarketDropdown1 = Tabs.Merchant:AddDropdown("BlackMarketDropdown", {
+    Title = "Select Merchant Slot(s)",
+    Values = {1, 2, 3, 4, 5},
+    Multi = true,
+    Default = {}
+})
+
+local AutoBuyToggle1 = Tabs.Merchant:AddToggle("AutoBuyToggle", {
+    Title = "Auto Buy (Selected Slots)",
+    Default = false
+})
+
+AutoBuyToggle1:OnChanged(function()
+    if AutoBuyToggle1.Value then
+        spawn(function()
+            while true do
+                if not AutoBuyToggle1.Value then break end
+                -- Buy 3 times
+                for i = 1, 3 do
+                    for number, isSelected in pairs(BlackMarketDropdown1.Value) do
+                        if isSelected then
+                            local args = {
+                                [1] = "Carnival Merchant",
+                                [2] = number
+                            }
+                            game:GetService("ReplicatedStorage").Packages.Knit.Services.LimitedMerchantService.RF.BuyItem:InvokeServer(unpack(args))
+                            wait(1)
+                        end
+                    end
+                end
+                wait(30) -- Wait 30 seconds before next cycle
+            end
+        end)
+    end
+end)
+
+
+
+-- Client-side patch for SimplePath
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local SimplePath = require(ReplicatedStorage:WaitForChild("OOP"):WaitForChild("SimplePath"))
+
+-- Patch __index to avoid errors
+local mt = getmetatable(SimplePath)
+if mt and mt.__index then
+    local oldIndex = mt.__index
+    mt.__index = function(self, key)
+        local ok, res = pcall(function()
+            return oldIndex(self, key)
+        end)
+        return ok and res or nil
+    end
+end
+
+-- Patch distance functions to avoid nil comparisons
+for key, value in pairs(SimplePath) do
+    if type(value) == "function" then
+        SimplePath[key] = function(...)
+            local args = {...}
+            -- Replace nil vectors/positions with Vector3.zero
+            for i = 1, #args do
+                if typeof(args[i]) == "Vector3" and args[i] == nil then
+                    args[i] = Vector3.new(0,0,0)
+                end
+            end
+            local ok, res = pcall(value, ...)
+            return ok and res or math.huge
+        end
+    end
+end
+
+
+local ClaimTreatBagSection = Tabs.Trick:AddSection("Claim Items")
+
+ClaimTreatBagSection:AddButton({
+    Title = "Claim Treat Bag",
+    Description = "Claim the treat bag needed to go trick or treating.",
+    Callback = function()
+        local Knit = require(game:GetService("ReplicatedStorage").Packages.Knit.KnitClient)
+        Knit.GetService("TrickOrTreatService"):ClaimTreatBag()
+    end
+})
+
+ClaimTreatBagSection:AddButton({
+    Title = "Claim Grave Digger",
+    Description = "Claim the shovel to dig graves.",
+    Callback = function()
+        local Knit = require(game:GetService("ReplicatedStorage").Packages.Knit.KnitClient)
+        Knit.GetService("GraveDiggerService"):ClaimGraveDigger()
+    end
+})
+
+
+local CollectionService = game:GetService("CollectionService")
+local Players = game:GetService("Players")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local LocalPlayer = Players.LocalPlayer
+local Knit = require(ReplicatedStorage.Packages.Knit)
+local CameraController = Knit.GetController("CameraController")
+local TrickOrTreatController = Knit.GetController("TrickOrTreatController")
+local PlayerGui = LocalPlayer:WaitForChild("PlayerGui")
+local TrickOrTreatUI = PlayerGui:WaitForChild("TrickOrTreat")
+
+local TrickOrTreatSection = Tabs.Trick:AddSection("Trick or Treat")
+
+-- Toggles
+local AutoTrickOrTreatToggle = TrickOrTreatSection:AddToggle("AutoTrickOrTreat", {
+    Title = "Auto Trick or Treat",
+    Description = "Automatically trick or treats. You will pause for about 120 seconds afer going to all houses. This is to let them reset.",
+    Default = false
+})
+
+
+local RemoveAnimationToggle = TrickOrTreatSection:AddToggle("RemoveAnimation", {
+    Title = "Remove Animation",
+    Description = "Removes camera movement and HUD changes during trick or treat - toggle above has this enabled already",
+    Default = false
+})
+
+-- Remove Animation logic
+local originalMoveCamTo = CameraController.MoveCamTo
+local originalToggleCamera = CameraController.ToggleCamera
+local HudManaging = require(ReplicatedStorage.Vendor.HudManaging)
+local originalClearHUD = HudManaging.ClearHUD
+local originalBringHUD = HudManaging.BringHUD
+local originalEndTrickOrTreat = TrickOrTreatController.EndTrickOrTreat
+
+RemoveAnimationToggle:OnChanged(function()
+    if RemoveAnimationToggle.Value then
+        CameraController.MoveCamTo = function(...)
+            local Promise = require(ReplicatedStorage.Packages.Promise)
+            return Promise.resolve()
+        end
+        CameraController.ToggleCamera = function() end
+        HudManaging.ClearHUD = function() end
+        HudManaging.BringHUD = function() end
+        TrickOrTreatUI.Enabled = false
+
+        -- Prevent character anchoring
+        local function preventAnchoring()
+            local character = LocalPlayer.Character
+            if character then
+                local hrp = character:FindFirstChild("HumanoidRootPart")
+                if hrp then
+                    hrp:GetPropertyChangedSignal("Anchored"):Connect(function()
+                        if hrp.Anchored then
+                            hrp.Anchored = false
+                        end
+                    end)
+                end
+            end
+        end
+        LocalPlayer.CharacterAdded:Connect(preventAnchoring)
+        preventAnchoring()
+    else
+        CameraController.MoveCamTo = originalMoveCamTo
+        CameraController.ToggleCamera = originalToggleCamera
+        HudManaging.ClearHUD = originalClearHUD
+        HudManaging.BringHUD = originalBringHUD
+        -- UI will be handled by game normally
+    end
+end)
+
+local autoTrickOrTreatThread = nil
+
+AutoTrickOrTreatToggle:OnChanged(function()
+    if AutoTrickOrTreatToggle.Value then
+        autoTrickOrTreatThread = task.spawn(function()
+            local Players = game:GetService("Players")
+            local LocalPlayer = Players.LocalPlayer
+            local ReplicatedStorage = game:GetService("ReplicatedStorage")
+            local RequestEvent = ReplicatedStorage.Packages.Knit.Services.TrickOrTreatService.RF.RequestTrickOrTreat
+            local EndEvent = ReplicatedStorage.Packages.Knit.Services.TrickOrTreatService.RF.EndTrickOrTreat
+
+            while AutoTrickOrTreatToggle.Value do
+                local houses = workspace.GameObjects.TrickOrTreat:GetChildren()
+                local roundStart = tick() -- Start timer at first house
+
+                for i = 1, #houses do
+                    local house = houses[i]
+                    if house and house:FindFirstChild("Door") and house.Door:FindFirstChild("Primary") then
+                        local character = LocalPlayer.Character or LocalPlayer.CharacterAdded:Wait()
+                        local charSpawn = house.Door.Primary:FindFirstChild("CharSpawn")
+                        if charSpawn then
+                            local extentsSize = character:GetExtentsSize()
+                            character:PivotTo(charSpawn.WorldCFrame * CFrame.new(0, extentsSize.Y / 2, 0))
+                            task.wait(0.5)
+                            RequestEvent:InvokeServer(house)
+                            task.wait()
+                            EndEvent:InvokeServer(house)
+                            task.wait(1)
+                        end
+                    end
+                end
+
+                local elapsed = tick() - roundStart
+                local waitTime = math.max(0, 125 - elapsed)
+                task.wait(waitTime)
+            end
+        end)
+    else
+        if autoTrickOrTreatThread then
+            task.cancel(autoTrickOrTreatThread)
+            autoTrickOrTreatThread = nil
+        end
+    end
+end)
+
+--[[
+
+local Players = game:GetService("Players")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local player = Players.LocalPlayer
+
+local TrickOrTreatSpamToggle = TrickOrTreatSection:AddToggle("TrickOrTreatSpam", {
+    Title = "Trick or Treat",
+    Description = "SOOOO OP... This causes a lot of lag, and you might need to wait a few seconds after turning this toggle off to stop seeing notifications.",
+    Default = false
+})
+
+local active = false
+local anchorConnection
+
+
+-- Prevent player being anchored
+local function preventAnchoring(character)
+    local hrp = character:WaitForChild("HumanoidRootPart", 5)
+    if not hrp then return end
+
+    if anchorConnection then
+        anchorConnection:Disconnect()
+    end
+
+    anchorConnection = hrp:GetPropertyChangedSignal("Anchored"):Connect(function()
+        if hrp.Anchored then
+            hrp.Anchored = false
+        end
+    end)
+end
+
+-- Trick or treat spam loop
+local function function1()
+    task.spawn(function()
+        while active and task.wait(0.1) do
+            local house = workspace:FindFirstChild("GameObjects")
+                and workspace.GameObjects.TrickOrTreat
+                and workspace.GameObjects.TrickOrTreat:FindFirstChild("House")
+
+            if house then
+                local RF = ReplicatedStorage.Packages.Knit.Services.TrickOrTreatService.RF
+                pcall(function()
+                    RF.RequestTrickOrTreat:InvokeServer(house)
+                    task.wait(0.01)
+                    RF.EndTrickOrTreat:InvokeServer()
+                end)
+            end
+        end
+    end)
+end
+
+-- When toggle changes
+TrickOrTreatSpamToggle:OnChanged(function()
+    if TrickOrTreatSpamToggle.Value then
+        active = true
+
+        -- Disable errors and anchors
+        error = function(...) end
+        if player.Character then
+            preventAnchoring(player.Character)
+        end
+        player.CharacterAdded:Connect(preventAnchoring)
+
+        -- Start infinite spam loop manager
+        task.spawn(function()
+            while active do
+                function1()
+                task.wait()
+            end
+        end)
+    else
+        active = false
+
+        if anchorConnection then
+            anchorConnection:Disconnect()
+            anchorConnection = nil
+        end
+    end
+end)
+
+local HideTreatNotificationsToggle = TrickOrTreatSection:AddToggle("HideTreatNotifications", {
+    Title = "Hide Treat Notifications",
+    Description = "Blocks notifications for Trick or Treat items and candy.",
+    Default = false
+})
+
+-- Notification hook variables
+local notificationHooksActive = false
+local originalCreateItemNotification, originalAddMessage, originalNotify, originalDisplayTopInfo
+
+HideTreatNotificationsToggle:OnChanged(function()
+    local ReplicatedStorage = game:GetService("ReplicatedStorage")
+    local Knit = require(ReplicatedStorage.Packages.Knit)
+    local NotificationController = Knit.GetController("NotificationController")
+
+    if HideTreatNotificationsToggle.Value and not notificationHooksActive then
+        -- Build blocked items list
+        local success, TrickOrTreatData = pcall(function()
+            return require(ReplicatedStorage.Data.Halloween.TrickOrTreat)
+        end)
+        if not success then return end
+
+        local blockedItems = {}
+        for zone, treatData in pairs(TrickOrTreatData.Treats) do
+            if treatData.Rewards then
+                for _, item in ipairs(treatData.Rewards) do
+                    if item.Title then
+                        blockedItems[item.Title] = true
+                    end
+                end
+            end
+        end
+        blockedItems["Candy"] = true
+        blockedItems["Halloween Candy"] = true
+
+        local function shouldBlockNotification(data)
+            if not data then return false end
+            if data.Content and type(data.Content) == "table" then
+                for _, item in pairs(data.Content) do
+                    if type(item) == "table" then
+                        local itemName = item.Title or item.Name or item.Item or item.Reward or item.Kind
+                        if itemName and blockedItems[tostring(itemName)] then
+                            return true
+                        end
+                    end
+                end
+            end
+            if data.PreContent and type(data.PreContent) == "table" then
+                for _, item in pairs(data.PreContent) do
+                    if type(item) == "table" then
+                        local itemName = item.Title or item.Name or item.Item or item.Reward or item.Kind
+                        if itemName and blockedItems[tostring(itemName)] then
+                            return true
+                        end
+                    end
+                end
+            end
+            if data.Message and type(data.Message) == "string" then
+                for itemName, _ in pairs(blockedItems) do
+                    if string.find(data.Message, tostring(itemName), 1, true) then
+                        return true
+                    end
+                end
+            end
+            return false
+        end
+
+        -- Hook controller functions
+        originalCreateItemNotification = NotificationController.CreateItemNotification
+        NotificationController.CreateItemNotification = function(self, data)
+            if shouldBlockNotification(data) then return end
+            return originalCreateItemNotification(self, data)
+        end
+
+        originalAddMessage = NotificationController.AddMessage
+        NotificationController.AddMessage = function(self, data)
+            if shouldBlockNotification(data) then return end
+            return originalAddMessage(self, data)
+        end
+
+        originalNotify = NotificationController.Notify
+        NotificationController.Notify = function(self, data)
+            if shouldBlockNotification(data) then return end
+            return originalNotify(self, data)
+        end
+
+        originalDisplayTopInfo = NotificationController.DisplayTopInfo
+        NotificationController.DisplayTopInfo = function(self, data)
+            if shouldBlockNotification(data) then return end
+            return originalDisplayTopInfo(self, data)
+        end
+
+        notificationHooksActive = true
+    elseif not HideTreatNotificationsToggle.Value and notificationHooksActive then
+        -- Restore original controller functions
+        local NotificationController = Knit.GetController("NotificationController")
+        if originalCreateItemNotification then
+            NotificationController.CreateItemNotification = originalCreateItemNotification
+        end
+        if originalAddMessage then
+            NotificationController.AddMessage = originalAddMessage
+        end
+        if originalNotify then
+            NotificationController.Notify = originalNotify
+        end
+        if originalDisplayTopInfo then
+            NotificationController.DisplayTopInfo = originalDisplayTopInfo
+        end
+        notificationHooksActive = false
+    end
+end)
+
+--]]
+
+local DigGravesSection = Tabs.Trick:AddSection("Dig Graves")
+
+local AutoDigGravesToggle = DigGravesSection:AddToggle("AutoDigGraves", {
+    Title = "Auto Dig Graves",
+    Description = "Automatically digs all available graves.",
+    Default = false
+})
+
+AutoDigGravesToggle:OnChanged(function()
+    if AutoDigGravesToggle.Value then
+        spawn(function()
+            local ReplicatedStorage = game:GetService("ReplicatedStorage")
+            local CollectionService = game:GetService("CollectionService")
+            local Remote = ReplicatedStorage:WaitForChild("Packages")
+                :WaitForChild("Knit")
+                :WaitForChild("Services")
+                :WaitForChild("GraveDiggerService")
+                :WaitForChild("RF")
+                :WaitForChild("DigGrave")
+            while AutoDigGravesToggle.Value do
+                local graves = CollectionService:GetTagged("GraveDigging")
+                for _, grave in ipairs(graves) do
+                    if grave and grave.Parent then
+                        pcall(function()
+                            Remote:InvokeServer(grave)
+                        end)
+                        task.wait(1)
+                    end
+                end
+                task.wait(5)
+            end
+        end)
+    end
+end)
+local ZombiesSection = Tabs.Trick:AddSection("Zombies")
+
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local Knit = require(ReplicatedStorage.Packages.Knit)
+local GraveMonsterController = Knit.GetController("GraveMonsterController")
+local GraveMonsterService = Knit.GetService("GraveMonsterService")
+local TweenService = game:GetService("TweenService")
+
+-- Save the original AttackMonster function
+local originalAttackMonster = GraveMonsterController.AttackMonster
+
+local autoAttackThread = nil
+
+local AutoBeatZombiesToggle = ZombiesSection:AddToggle("AutoBeatZombies", {
+    Title = "Auto Beat Zombies",
+    Description = "Automatically attack zombies - Works while fighting bosses!",
+    Default = false
+})
+
+AutoBeatZombiesToggle:OnChanged(function()
+    if AutoBeatZombiesToggle.Value then
+        -- a(): Override AttackMonster to remove distance check
+        GraveMonsterController.AttackMonster = function(p44, p45)
+            local v_u_10 = require(ReplicatedStorage.Data.Halloween.GraveMonsters)
+            local v_u_17 = GraveMonsterController
+            local v_u_13 = game:GetService("Players").LocalPlayer.Character or game:GetService("Players").LocalPlayer.CharacterAdded:Wait()
+            local v46 = v_u_13.PrimaryPart
+            if v46 then
+                local v47 = v_u_17.GetGraveModelById(p44)
+                if v47 then
+                    local v48 = p45.PrimaryPart
+                    if v48 then
+                        local v49 = v47:GetAttribute("Zone")
+                        local v50 = v_u_10.Monsters[v49][p45.Name]
+                        if v50 then
+                            local _, v52 = GraveMonsterService:AttackMonster(p44):await()
+                            if v52 then
+                                local v53 = v52.NewHealth
+                                local v54 = p45:GetAttribute("StartHealth")
+                                local v55 = v53 / v54
+                                local v56 = UDim2.fromScale(v55, 1)
+                                local v57 = p45:WaitForChild("Head"):WaitForChild("Health")
+                                v57.Health.Text = v53 .. "/" .. v54 .. " HP"
+                                TweenService:Create(v57.Bar.Progress, TweenInfo.new(0.15, Enum.EasingStyle.Sine), {
+                                    ["Size"] = v56
+                                }):Play()
+                                if v52.Defeated then
+                                    GraveMonsterController.DefeatMonster(p44, p45)
+                                end
+                            end
+                        end
+                    end
+                end
+            end
+        end
+
+        -- b(): Simulate attack input (game thinks you are clicking)
+        local fakeInput = {
+            UserInputType = Enum.UserInputType.MouseButton1,
+            KeyCode = Enum.KeyCode.Unknown
+        }
+
+        autoAttackThread = task.spawn(function()
+            while AutoBeatZombiesToggle.Value do
+                GraveMonsterController.InputBegan(fakeInput, false)
+                task.wait()
+            end
+        end)
+    else
+        -- Restore the original AttackMonster function
+        GraveMonsterController.AttackMonster = originalAttackMonster
+
+        -- Stop simulated input thread
+        if autoAttackThread then
+            task.cancel(autoAttackThread)
+            autoAttackThread = nil
+        end
+    end
+end)
+
+
+local HauntedChestSection = Tabs.Trick:AddSection("Haunted Chest")
+
+local HauntedGoldStatus = HauntedChestSection:Paragraph("HauntedGoldStatus", {
+    Title = "Haunted Gold Amount",
+    Content = "Loading..."
+})
+
+local AutoOpenChestToggle = HauntedChestSection:AddToggle("AutoOpenChest", {
+    Title = "Auto Open Haunted Chest",
+    Description = "Automatically opens Haunted Chest when you have Haunted Gold.",
+    Default = false
+})
+
+local function parseAmount(amtText)
+    local numStr = amtText:match("x(.+)")
+    if not numStr then return 0 end
+    if numStr:find("k") then
+        local baseNum = tonumber(numStr:match("(%d+%.?%d*)k"))
+        return baseNum and (baseNum * 1000) or 0
+    else
+        return tonumber(numStr) or 0
+    end
+end
+
+local function updateGoldStatus()
+    local success, result = pcall(function()
+        local player = game.Players.LocalPlayer
+        local goldObject = player.PlayerGui.GameUI.Menus.Inventory.Display.Items.MainFrame.ScrollingFrame.KeysStorage.Objects["Spooky Gold/1"]
+        
+        if goldObject and goldObject:FindFirstChild("ButtonDisplay") and goldObject.ButtonDisplay:FindFirstChild("Amt") then
+            return goldObject.ButtonDisplay.Amt.Text
+        else
+            return nil
+        end
+    end)
+    
+    if success and result then
+        HauntedGoldStatus:SetValue(result)
+        return result
+    else
+        HauntedGoldStatus:SetValue("No Gold")
+        return nil
+    end
+end
+
+-- Update status immediately on load
+task.spawn(function()
+    task.wait(1) -- Wait for GUI to load
+    updateGoldStatus()
+end)
+
+-- Auto Open Haunted Chest Loop
+AutoOpenChestToggle:OnChanged(function(enabled)
+    if enabled then
+        task.spawn(function()
+            local ReplicatedStorage = game:GetService("ReplicatedStorage")
+            while AutoOpenChestToggle.Value do
+                local amtText = updateGoldStatus()
+                
+                if amtText then
+                    local amount = parseAmount(amtText)
+                    
+                    if amount >= 1 then
+                        pcall(function()
+                            local Knit = require(game:GetService("ReplicatedStorage").Packages.Knit.KnitClient)
+                            Knit.GetService("ChestService"):Open("HauntedChest")
+                        end)
+                        task.wait(0.25)
+                    else
+                        task.wait(1)
+                    end
+                else
+                    task.wait(1)
+                end
+            end
+        end)
+    end
+end)
+
+
+local CauldronSection = Tabs.Trick:Section("Cauldron Brewing")
+
+local brewing = require(game:GetService("ReplicatedStorage").Data.Halloween.Brewing)
+
+-- Add dropdown and toggle to Cauldron section
+local itemTitles = {}
+local recipeMap = {}
+
+for i, recipe in ipairs(brewing.Recipes.Halloween) do
+    local title = "Unknown"
+    if type(recipe.Reward) == "table" then
+        title = recipe.Reward.Title or recipe.Reward.Item or tostring(i)
+    elseif type(recipe.Reward) == "string" then
+        title = recipe.Reward
+    end
+    table.insert(itemTitles, title)
+    recipeMap[title] = recipe
+end
+
+local SelectItemDropdown = CauldronSection:AddDropdown("SelectItemDropdown", {
+    Title = "Select Item",
+    Values = itemTitles,
+    Multi = true, -- Multi-select enabled
+    Searchable = true,
+    Default = {},
+})
+
+local AutoBrewToggle = CauldronSection:AddToggle("AutoBrewToggle", {
+    Title = "Auto Brew",
+    Description = "Automatically brews a random selected item when ready.",
+    Default = false
+})
+
+AutoBrewToggle:OnChanged(function()
+    if AutoBrewToggle.Value then
+        spawn(function()
+            local ReplicatedStorage = game:GetService("ReplicatedStorage")
+            local Knit = require(ReplicatedStorage.Packages.Knit.KnitClient)
+            local RealTime = require(ReplicatedStorage.Vendor.RealTime)
+            local CustomReplicaController = Knit.GetController("CustomReplicaController")
+            local replica = CustomReplicaController:GetReplica()
+
+            while AutoBrewToggle.Value do
+                -- Gather selected items
+                local selectedItems = {}
+                for item, selected in pairs(SelectItemDropdown.Value) do
+                    if selected then
+                        table.insert(selectedItems, item)
+                    end
+                end
+
+                if #selectedItems > 0 and replica and replica.Data and replica.Data.Events and replica.Data.Events.Halloween then
+                    local brewingTimer = replica.Data.Events.Halloween.BrewingTimer
+                    local currentTime = RealTime()
+                    local elapsed = currentTime - brewingTimer
+                    if elapsed >= 60 then
+                        -- Pick a random item from selected
+                        local selectedTitle = selectedItems[math.random(1, #selectedItems)]
+                        local recipe = recipeMap[selectedTitle]
+                        if recipe then
+                            local itemsTable = {}
+                            local slot = 1
+                            for id, amount in pairs(recipe.Ingredients) do
+                                itemsTable[tostring(id)] = {Slot = slot, Amount = amount}
+                                slot = slot + 1
+                            end
+                            Knit.GetService("BrewingService"):Brew(itemsTable)
+                        end
+                    end
+                end
+                wait(1)
+            end
+        end)
+    end
+end)
+
+local ReciepeSection = Tabs.Trick:AddSection("Recipes")
+
+-- Build ingredient lookup
+local ingredientNames = {}
+for id, info in pairs(brewing.Ingredients.Halloween) do
+    ingredientNames[id] = info.Item or tostring(id)
+end
+
+-- Add a paragraph for each recipe
+for i, recipe in ipairs(brewing.Recipes.Halloween) do
+    local rewardTitle = "Unknown"
+
+    if type(recipe.Reward) == "table" then
+        rewardTitle = recipe.Reward.Title or recipe.Reward.Item or "Unknown"
+    elseif type(recipe.Reward) == "string" then
+        rewardTitle = recipe.Reward
+    end
+
+    -- Format ingredients: Name (xAmount)
+    local ingredientsList = {}
+    for id, amount in pairs(recipe.Ingredients or {}) do
+        local name = ingredientNames[id] or tostring(id)
+        table.insert(ingredientsList, string.format("%s (%dx)", name, amount))
+    end
+
+    -- Add a paragraph per recipe
+    ReciepeSection:Paragraph(`Recipe #{i}`, {
+        Title = string.format("Recipe: %s", rewardTitle),
+        Content = "Ingredients: " .. table.concat(ingredientsList, ", ")
+    })
+end
+
+
+local HauntedFortuneSection = Tabs.Wheel:AddSection("Haunted Fortune Wheel")
+
+local GhostFortuneSpinDropdown = Tabs.Wheel:AddDropdown("GhostFortuneSpinAmount", {
+    Title = "Spin Amount",
+    Description = "Select Wheel Spin Amount",
+    Values = {"1x", "3x", "10x"},
+    Multi = false,
+    Default = "1x"
+})
+
+local AutoGhostFortuneToggle = Tabs.Wheel:AddToggle("AutoGhostFortuneSpin", {
+    Title = "Auto Haunted Fortune Wheel",
+    Default = false
+})
+
+AutoGhostFortuneToggle:OnChanged(function()
+    if AutoGhostFortuneToggle.Value then
+        spawn(function()
+            while true do
+                if not AutoGhostFortuneToggle.Value then break end
+                
+                local args = {
+                    [1] = "Haunted Fortune",
+                    [2] = GhostFortuneSpinDropdown.Value == "3x" and "x10" or GhostFortuneSpinDropdown.Value == "10x" and "x25" or nil
+                }
+                game:GetService("ReplicatedStorage").Packages.Knit.Services.SpinnerService.RF.Spin:InvokeServer(unpack(args))
+                
+                wait(1)
+            end
+        end)
+    end
+end)
+
+
+
+local UnderworldFortuneSection = Tabs.Wheel:AddSection("Underworld Fortune Wheel")
+
+local GhostFortuneSpinDropdown1 = Tabs.Wheel:AddDropdown("UnderworldFortuneSpinAmount", {
+    Title = "Spin Amount",
+    Description = "Select Wheel Spin Amount",
+    Values = {"1x", "3x", "10x"},
+    Multi = false,
+    Default = "1x"
+})
+
+local AutoGhostFortuneToggle1 = Tabs.Wheel:AddToggle("AutoUnderworldFortuneSpin", {
+    Title = "Auto Underworld Fortune Wheel",
+    Default = false
+})
+
+AutoGhostFortuneToggle1:OnChanged(function()
+    if AutoGhostFortuneToggle1.Value then
+        spawn(function()
+            while true do
+                if not AutoGhostFortuneToggle1.Value then break end
+                
+                local args = {
+                    [1] = "Underworld Fortune",
+                    [2] = GhostFortuneSpinDropdown1.Value == "3x" and "x10" or GhostFortuneSpinDropdown1.Value == "10x" and "x25" or nil
+                }
+                game:GetService("ReplicatedStorage").Packages.Knit.Services.SpinnerService.RF.Spin:InvokeServer(unpack(args))
+                
+                wait(1)
+            end
+        end)
+    end
+end)
+
+
+local HauntedFortuneSection2 = Tabs.Wheel:AddSection("Carnival Fortune Wheel")
+
+local GhostFortuneSpinDropdown2 = Tabs.Wheel:AddDropdown("GhostFortuneSpinAmount", {
+    Title = "Spin Amount",
+    Description = "Select Wheel Spin Amount",
+    Values = {"1x", "3x", "10x"},
+    Multi = false,
+    Default = "1x"
+})
+
+local AutoGhostFortuneToggle2 = Tabs.Wheel:AddToggle("AutoGhostFortuneSpin", {
+    Title = "Auto Carnival Fortune Wheel",
+    Default = false
+})
+
+AutoGhostFortuneToggle2:OnChanged(function()
+    if AutoGhostFortuneToggle2.Value then
+        spawn(function()
+            while true do
+                if not AutoGhostFortuneToggle2.Value then break end
+                
+                local args = {
+                    [1] = "Carnival Fortune",
+                    [2] = GhostFortuneSpinDropdown2.Value == "3x" and "x10" or GhostFortuneSpinDropdown2.Value == "10x" and "x25" or nil
+                }
+                game:GetService("ReplicatedStorage").Packages.Knit.Services.SpinnerService.RF.Spin:InvokeServer(unpack(args))
+                
+                wait(2)
+            end
+        end)
+    end
+end)
+
+local AutoClickSection = Tabs.Tower:AddSection("Auto Click")
+
+-- Auto Click for Tower
+local AutoClickTowerToggle = AutoClickSection:AddToggle("AutoClickTower", {
+    Title = "Auto Click",
+    Description = "Auto clicks during tower fights. This is because the normal auto click/crit will break the tower.",
+    Default = false
+})
+
+
+-- Variables for auto click
+local customAutoClickActive = false
+
+-- Function to perform custom clicks
+local function performCustomClicks()
+    while customAutoClickActive do
+        pcall(function()
+            local Knit = require(game:GetService("ReplicatedStorage").Packages.Knit)
+            local ArmWrestleController = Knit.GetController("ArmWrestleController")
+
+            if ArmWrestleController and ArmWrestleController.Fighting and ArmWrestleController.IsStarted then
+                ArmWrestleController.MouseClick(Enum.UserInputType.MouseButton1, false)
+            end
+        end)
+        task.wait(0.05) -- Click fast
+    end
+end
+
+AutoClickTowerToggle:OnChanged(function(enabled)
+    if enabled then
+        customAutoClickActive = true
+        task.spawn(performCustomClicks)
+    else
+        customAutoClickActive = false
+    end
+end)
+
+
+
+local TowerNote1 = AutoClickSection:Paragraph("TowerNote1", {
+    Title = "Warning",
+    Content = "Before joining a tower, turn of the auto click/crit toggle in the Auto Fight Section - Main tab. If left on, the tower will break and you will lose your keys. The toggle above is what you should use for towers.",
+    TitleAlignment = "Middle",
+    ContentAlignment = Enum.TextXAlignment.Left
+})
+
+local TowerSection = Tabs.Tower:AddSection("Spooky Tower")
+
+-- Tower Status
+local TowerKeysStatus = TowerSection:Paragraph("TowerKeysStatus", {
+    Title = "Tower Status",
+    Content = "Loading..."
+})
+
+-- Function to parse tower key amount
+local function parseTowerKeyAmount(amtText)
+    local numStr = amtText:match("x(.+)")
+    if not numStr then return 0 end
+    if numStr:find("k") then
+        local baseNum = tonumber(numStr:match("(%d+%.?%d*)k"))
+        return baseNum and (baseNum * 1000) or 0
+    else
+        return tonumber(numStr) or 0
+    end
+end
+
+-- Check if currently in a tower
+local Knit = require(game:GetService("ReplicatedStorage").Packages.Knit)
+Knit.OnStart():await()
+
+local TowerController = Knit.GetController("TowerController")
+local TowerService = Knit.GetService("TowerService")
+
+-- Function to check tower status
+local function CheckTowerStatus()
+    local inTower = false
+    local towerName = "None"
+    
+    -- Method 1: Check TowerService for ongoing tower
+    pcall(function()
+        local playerData = Knit.GetController("CustomReplicaController"):GetReplica()
+        if playerData and playerData.Data and playerData.Data.OngoingTower then
+            inTower = true
+            towerName = playerData.Data.OngoingTower
+        end
+    end)
+    
+    -- Method 2: Check if tower UI is visible
+    if not inTower then
+        pcall(function()
+            local towerHud = game.Players.LocalPlayer.PlayerGui.GameUI.Hud.Tower
+            if towerHud and towerHud.Visible then
+                inTower = true
+                towerName = towerHud.TowerName.Text or "Unknown Tower"
+            end
+        end)
+    end
+    
+    return inTower, towerName
+end
+
+-- Passive Status Updater
+task.spawn(function()
+    while true do
+        local player = game.Players.LocalPlayer
+
+        -- Safe one-line key amount retrieval
+        local keyAmount = game.Players.LocalPlayer.PlayerGui:FindFirstChild("GameUI") and game.Players.LocalPlayer.PlayerGui.GameUI:FindFirstChild("Menus") and game.Players.LocalPlayer.PlayerGui.GameUI.Menus:FindFirstChild("Inventory") and game.Players.LocalPlayer.PlayerGui.GameUI.Menus.Inventory:FindFirstChild("Display") and game.Players.LocalPlayer.PlayerGui.GameUI.Menus.Inventory.Display:FindFirstChild("Items") and game.Players.LocalPlayer.PlayerGui.GameUI.Menus.Inventory.Display.Items:FindFirstChild("MainFrame") and game.Players.LocalPlayer.PlayerGui.GameUI.Menus.Inventory.Display.Items.MainFrame:FindFirstChild("ScrollingFrame") and game.Players.LocalPlayer.PlayerGui.GameUI.Menus.Inventory.Display.Items.MainFrame.ScrollingFrame:FindFirstChild("KeysStorage") and game.Players.LocalPlayer.PlayerGui.GameUI.Menus.Inventory.Display.Items.MainFrame.ScrollingFrame.KeysStorage:FindFirstChild("Objects") and game.Players.LocalPlayer.PlayerGui.GameUI.Menus.Inventory.Display.Items.MainFrame.ScrollingFrame.KeysStorage.Objects:FindFirstChild("Spooky Tower Key/1") and game.Players.LocalPlayer.PlayerGui.GameUI.Menus.Inventory.Display.Items.MainFrame.ScrollingFrame.KeysStorage.Objects["Spooky Tower Key/1"]:FindFirstChild("ButtonDisplay") and game.Players.LocalPlayer.PlayerGui.GameUI.Menus.Inventory.Display.Items.MainFrame.ScrollingFrame.KeysStorage.Objects["Spooky Tower Key/1"].ButtonDisplay:FindFirstChild("Amt") and game.Players.LocalPlayer.PlayerGui.GameUI.Menus.Inventory.Display.Items.MainFrame.ScrollingFrame.KeysStorage.Objects["Spooky Tower Key/1"].ButtonDisplay.Amt.Text or "No Spooky Keys"
+
+        local inTower, towerName = CheckTowerStatus()
+        local statusText = "Spooky Keys: " .. keyAmount .. "\nIn Tower: " .. (inTower and "Yes (" .. towerName .. ")" or "No")
+        TowerKeysStatus:SetValue(statusText)
+
+        task.wait(1)
+    end
+end)
+
+
+-- Manual Tower Buttons
+TowerSection:AddButton({
+    Title = "Use Spooky Keys (1x)",
+    Description = "Use the Spooky Key once.",
+    Callback = function()
+        -- End any ongoing fight before entering tower
+        pcall(function()
+            local Knit = require(game:GetService("ReplicatedStorage").Packages.Knit)
+            local ArmWrestleService = Knit.GetService("ArmWrestleService")
+            ArmWrestleService:RequestEndFight("SkipEnd")
+        end)
+        
+        wait(0.5) -- Brief wait after ending fight
+        
+        local args = {
+            [1] = "SpookyTower",
+            [2] = false
+        }
+        game:GetService("ReplicatedStorage").Packages.Knit.Services.TowerService.RF.EnterTower:InvokeServer(unpack(args))
+    end
+})
+
+TowerSection:AddButton({
+    Title = "Use All Spooky Keys (250x)",
+    Description = "Use All Spooky Keys (max 250 at a time).",
+    Callback = function()
+        -- End any ongoing fight before entering tower
+        pcall(function()
+            local Knit = require(game:GetService("ReplicatedStorage").Packages.Knit)
+            local ArmWrestleService = Knit.GetService("ArmWrestleService")
+            ArmWrestleService:RequestEndFight("SkipEnd")
+        end)
+        
+        wait(0.5) -- Brief wait after ending fight
+        
+        local args = {
+            [1] = "SpookyTower",
+            [2] = true
+        }
+        game:GetService("ReplicatedStorage").Packages.Knit.Services.TowerService.RF.EnterTower:InvokeServer(unpack(args))
+    end
+})
+-- Auto Tower Toggle
+local AutoTowerToggle = TowerSection:AddToggle("AutoTower", {
+    Title = "Auto Tower (250 keys)",
+    Description = "Will auto complete the tower doing 250 keys each time. Temporarily disables Auto Fight/Click.",
+    Default = false
+})
+
+AutoTowerToggle:OnChanged(function()
+    if AutoTowerToggle.Value then
+        spawn(function()
+            -- Initialize state variables for this session
+            local player = game.Players.LocalPlayer
+            local togglesDisabled = false
+            local wasAutoFightOn = false
+            local wasAutoClickOn = false
+            local previousKeyAmount = 0
+
+            while AutoTowerToggle.Value do
+                local inTower, _ = CheckTowerStatus()
+
+                -- Check current key amount
+                local keyObject = player.PlayerGui.GameUI.Menus.Inventory.Display.Items.MainFrame.ScrollingFrame.KeysStorage.Objects:FindFirstChild("Spooky Tower Key/1") or "0"
+                local currentKeyAmount = 0
+
+                if keyObject and keyObject:FindFirstChild("ButtonDisplay") and keyObject.ButtonDisplay:FindFirstChild("Amt") then
+                    local amtText = keyObject.ButtonDisplay.Amt.Text
+                    currentKeyAmount = parseTowerKeyAmount(amtText)
+                end
+
+                local hasKeys = currentKeyAmount > 0
+
+                -- Handle key state transitions
+                if hasKeys and not togglesDisabled then
+                    -- Just got keys, disable other toggles
+                    wasAutoFightOn = AutoFightToggle and AutoFightToggle.Value or false
+                    wasAutoClickOn = AutoClickToggle and AutoClickToggle.Value or false
+
+                    if wasAutoFightOn then AutoFightToggle:SetValue(false) end
+                    if wasAutoClickOn then AutoClickToggle:SetValue(false) end
+
+                    togglesDisabled = true
+                    wait(1) -- Wait for toggles to fully disable
+                elseif not hasKeys and togglesDisabled and not inTower then
+                    -- Just ran out of keys AND not in tower, re-enable toggles
+                    wait(2) -- Wait a bit
+
+                    -- Re-enable toggles if they were on before
+                    if wasAutoFightOn and AutoFightToggle then AutoFightToggle:SetValue(true) end
+                    if wasAutoClickOn and AutoClickToggle then AutoClickToggle:SetValue(true) end
+
+                    -- Reset state flags for the next cycle
+                    wasAutoFightOn = false
+                    wasAutoClickOn = false
+                    togglesDisabled = false
+                end
+
+                if not inTower and hasKeys then
+                    -- Has keys and not in tower, enter tower
+                    -- End any ongoing fight before entering tower
+                    pcall(function()
+                        local Knit = require(game:GetService("ReplicatedStorage").Packages.Knit)
+                        local ArmWrestleService = Knit.GetService("ArmWrestleService")
+                        ArmWrestleService:RequestEndFight("SkipEnd")
+                    end)
+
+                    wait(0.5) -- Brief wait after ending fight
+
+                    pcall(function()
+                        local args = {
+                            [1] = "SpookyTower",
+                            [2] = true
+                        }
+                        game:GetService("ReplicatedStorage").Packages.Knit.Services.TowerService.RF.EnterTower:InvokeServer(unpack(args))
+                    end)
+                end
+
+                previousKeyAmount = currentKeyAmount
+                wait(hasKeys and 1 or 5) -- Check more frequently when we have keys
+            end
+
+            -- ✅ Re-enable toggles when manually turned off (only if not in tower)
+            if togglesDisabled then
+                wait(1) -- Brief delay to ensure proper state
+                
+                local inTower, _ = CheckTowerStatus()
+                if not inTower then
+                    -- Re-enable toggles if they were on before
+                    if wasAutoFightOn and AutoFightToggle then AutoFightToggle:SetValue(true) end
+                    if wasAutoClickOn and AutoClickToggle then AutoClickToggle:SetValue(true) end
+                end
+            end
+        end)
+    end
+end)
+
+
+local TowerSection1 = Tabs.Tower:AddSection("Underworld Tower")
+
+-- Tower Status
+local TowerKeysStatus1 = TowerSection1:Paragraph("TowerKeysStatus1", {
+    Title = "Tower Status",
+    Content = "Loading..."
+})
+
+-- Function to parse tower key amount
+local function parseTowerKeyAmount(amtText)
+    local numStr = amtText:match("x(.+)")
+    if not numStr then return 0 end
+    if numStr:find("k") then
+        local baseNum = tonumber(numStr:match("(%d+%.?%d*)k"))
+        return baseNum and (baseNum * 1000) or 0
+    else
+        return tonumber(numStr) or 0
+    end
+end
+
+
+
+local TowerController = Knit.GetController("TowerController")
+local TowerService = Knit.GetService("TowerService")
+
+-- Function to check tower status
+local function CheckTowerStatus()
+    local inTower = false
+    local towerName = "None"
+    
+    pcall(function()
+        local playerData = Knit.GetController("CustomReplicaController"):GetReplica()
+        if playerData and playerData.Data and playerData.Data.OngoingTower then
+            inTower = true
+            towerName = playerData.Data.OngoingTower
+        end
+    end)
+    
+    if not inTower then
+        pcall(function()
+            local towerHud = game.Players.LocalPlayer.PlayerGui.GameUI.Hud.Tower
+            if towerHud and towerHud.Visible then
+                inTower = true
+                towerName = towerHud.TowerName.Text or "Unknown Tower"
+            end
+        end)
+    end
+    
+    return inTower, towerName
+end
+
+-- Passive Status Updater
+task.spawn(function()
+    while true do
+        local player = game.Players.LocalPlayer
+        local keyAmount = "No Underworld Keys"
+        pcall(function()
+            local keyObj = player.PlayerGui.GameUI.Menus.Inventory.Display.Items.MainFrame.ScrollingFrame.KeysStorage.Objects:FindFirstChild("Underworld Tower Key/1")
+            if keyObj and keyObj:FindFirstChild("ButtonDisplay") and keyObj.ButtonDisplay:FindFirstChild("Amt") then
+                keyAmount = keyObj.ButtonDisplay.Amt.Text
+            end
+        end)
+
+        local inTower, towerName = CheckTowerStatus()
+        local statusText = "Underworld Keys: " .. keyAmount .. "\nIn Tower: " .. (inTower and "Yes (" .. towerName .. ")" or "No")
+        TowerKeysStatus1:SetValue(statusText)
+
+        task.wait(1)
+    end
+end)
+
+-- Manual Tower Buttons
+TowerSection1:AddButton({
+    Title = "Use Underworld Keys (1x)",
+    Description = "Use the Underworld Key once.",
+    Callback = function()
+        pcall(function()
+            local ArmWrestleService = Knit.GetService("ArmWrestleService")
+            ArmWrestleService:RequestEndFight("SkipEnd")
+        end)
+        
+        wait(0.5)
+        local args = {"UnderworldTower", false}
+        game:GetService("ReplicatedStorage").Packages.Knit.Services.TowerService.RF.EnterTower:InvokeServer(unpack(args))
+    end
+})
+
+TowerSection1:AddButton({
+    Title = "Use All Underworld Keys (250x)",
+    Description = "Use All Underworld Keys (max 250 at a time).",
+    Callback = function()
+        pcall(function()
+            local ArmWrestleService = Knit.GetService("ArmWrestleService")
+            ArmWrestleService:RequestEndFight("SkipEnd")
+        end)
+        
+        wait(0.5)
+        local args = {"UnderworldTower", true}
+        game:GetService("ReplicatedStorage").Packages.Knit.Services.TowerService.RF.EnterTower:InvokeServer(unpack(args))
+    end
+})
+
+-- Auto Tower Toggle
+local AutoTowerToggle1 = TowerSection1:AddToggle("AutoTower", {
+    Title = "Auto Tower (250 keys)",
+    Description = "Will auto complete the tower doing 250 keys each time. Temporarily disables Auto Fight/Click.",
+    Default = false
+})
+
+AutoTowerToggle1:OnChanged(function()
+    if AutoTowerToggle1.Value then
+        spawn(function()
+            local player = game.Players.LocalPlayer
+            local togglesDisabled = false
+            local wasAutoFightOn = false
+            local wasAutoClickOn = false
+
+            while AutoTowerToggle1.Value do
+                local inTower, _ = CheckTowerStatus()
+
+                local keyObject = player.PlayerGui.GameUI.Menus.Inventory.Display.Items.MainFrame.ScrollingFrame.KeysStorage.Objects:FindFirstChild("Underworld Tower Key/1")
+                local currentKeyAmount = 0
+                if keyObject and keyObject:FindFirstChild("ButtonDisplay") and keyObject.ButtonDisplay:FindFirstChild("Amt") then
+                    currentKeyAmount = parseTowerKeyAmount(keyObject.ButtonDisplay.Amt.Text)
+                end
+
+                local hasKeys = currentKeyAmount > 0
+
+                -- Disable other toggles if keys present
+                if hasKeys and not togglesDisabled then
+                    wasAutoFightOn = AutoFightToggle and AutoFightToggle.Value or false
+                    wasAutoClickOn = AutoClickToggle and AutoClickToggle.Value or false
+                    if wasAutoFightOn then AutoFightToggle:SetValue(false) end
+                    if wasAutoClickOn then AutoClickToggle:SetValue(false) end
+                    togglesDisabled = true
+                    wait(1)
+                elseif not hasKeys and togglesDisabled and not inTower then
+                    if wasAutoFightOn and AutoFightToggle then AutoFightToggle:SetValue(true) end
+                    if wasAutoClickOn and AutoClickToggle then AutoClickToggle:SetValue(true) end
+                    togglesDisabled = false
+                end
+
+                if not inTower and hasKeys then
+                    pcall(function()
+                        local ArmWrestleService = Knit.GetService("ArmWrestleService")
+                        ArmWrestleService:RequestEndFight("SkipEnd")
+                    end)
+                    wait(0.5)
+                    pcall(function()
+                        game:GetService("ReplicatedStorage").Packages.Knit.Services.TowerService.RF.EnterTower:InvokeServer("UnderworldTower", true)
+                    end)
+                end
+
+                wait(hasKeys and 1 or 5)
+            end
+
+            -- Re-enable toggles when manually turned off
+            if togglesDisabled then
+                wait(1)
+                local inTower, _ = CheckTowerStatus()
+                if not inTower then
+                    if wasAutoFightOn and AutoFightToggle then AutoFightToggle:SetValue(true) end
+                    if wasAutoClickOn and AutoClickToggle then AutoClickToggle:SetValue(true) end
+                end
+            end
+        end)
+    end
+end)
+
+local CupMinigameData = require(ReplicatedStorage.Data.Halloween.CupMinigame)
+local CupMinigameController = Knit.GetController("CupMinigameController")
+local CustomReplicaController = Knit.GetController("CustomReplicaController")
+
+local MinigameSection = Tabs.Minigame:AddSection("Cup Minigame")
+
+local CupMinigameToggle = MinigameSection:AddToggle("CupMinigameToggle", {
+    Title = "100% Cup Minigame (Auto)",
+    Description = "Automatically plays the cup minigame, always selects the right cup, and claims rewards every 10 keys.",
+    Default = false
+})
+
+local CupParagraph = MinigameSection:Paragraph("CupParagraph", {
+    Title = "Shoutout",
+    Content = "A hugeeeeeeeeeeee thank you to a friend of mine who lent me over 100 cup keys to experiment with. I kept on wasting the keys with silly mistakes, but he kept giving me more and more keys/chances. Im not going to mention his name unless he wants me to, but thank you so much for the help!"
+})
+
+local currentHighlight
+local startingKeys = 0
+local nextClaimThreshold = 0
+
+local function highlightCup(cup)
+    if currentHighlight then
+        currentHighlight:Destroy()
+        currentHighlight = nil
+    end
+    local highlight = Instance.new("Highlight")
+    highlight.FillColor = Color3.new(0, 1, 0)
+    highlight.OutlineColor = Color3.new(1, 1, 0)
+    highlight.FillTransparency = 0.5
+    highlight.OutlineTransparency = 0
+    highlight.Adornee = cup
+    highlight.Parent = cup
+    currentHighlight = highlight
+end
+
+local oldEndRound = CupMinigameController.EndRound
+CupMinigameController.EndRound = function(...)
+    if currentHighlight then
+        currentHighlight:Destroy()
+        currentHighlight = nil
+    end
+    return oldEndRound(...)
+end
+
+local function getCupKeyAmount()
+    local replica = CustomReplicaController:GetReplica()
+    if replica and replica.Data and replica.Data.Items and replica.Data.Items.ItemInventory and replica.Data.Items.ItemInventory.Keys then
+        local keys = replica.Data.Items.ItemInventory.Keys
+        return (keys["Cup Key"] and keys["Cup Key"]["1"]) or (keys["CupKey"] and keys["CupKey"]["1"]) or 0
+    end
+    return 0
+end
+
+local function fireCupButtonWhenVisible(billboard)
+    local button = billboard:FindFirstChild("Button")
+    if not button then return false end
+    while not billboard.Enabled or not button.Visible do
+        task.wait(0.1)
+    end
+    for _, conn in ipairs(getconnections(button.MouseButton1Click)) do
+        conn:Fire()
+    end
+    return true
+end
+
+local function fireWinProceedButton()
+    local LocalPlayer = Players.LocalPlayer
+    local CupWin = LocalPlayer.PlayerGui.GameUI.Menus.CupWin
+    local proceedButton = CupWin.Actions.Proceed.Button
+    while not proceedButton.Visible do
+        task.wait(0.1)
+    end
+    for _, conn in ipairs(getconnections(proceedButton.MouseButton1Click)) do
+        conn:Fire()
+    end
+end
+
+local function fireWinCancelButton()
+    local LocalPlayer = Players.LocalPlayer
+    local CupWin = LocalPlayer.PlayerGui.GameUI.Menus.CupWin
+    local cancelButton = CupWin.Actions.Cancel.Button
+    while not cancelButton.Visible do
+        task.wait(0.1)
+    end
+    for _, conn in ipairs(getconnections(cancelButton.MouseButton1Click)) do
+        conn:Fire()
+    end
+end
+
+local function startCupGameIfInactive()
+    if not CupMinigameController.Stand then
+        local LocalPlayer = game:GetService("Players").LocalPlayer
+        local PlayNowButton = LocalPlayer.PlayerGui.GameUI.Menus.CupEntrance.PlayNow.Button
+        if PlayNowButton and PlayNowButton.Visible then
+            for _, conn in ipairs(getconnections(PlayNowButton.MouseButton1Click)) do
+                conn:Fire()
+            end
+            task.wait(1)
+        end
+    end
+end
+    
+CupMinigameToggle:OnChanged(function()
+    if CupMinigameToggle.Value then
+        -- Initialize starting keys and claim threshold
+        startingKeys = getCupKeyAmount()
+        nextClaimThreshold = startingKeys - 10
+        
+        -- Make the round go instantly
+        CupMinigameData.Config.TimeMultiplier = 0.01
+        CupMinigameData.Config.StartSpeed = 99999
+        CupMinigameData.Config.SpeedPerRound = 99999
+        CupMinigameData.Config.MaxSpeed = 99999
+
+        spawn(function()
+            local canContinue = true
+            
+            while CupMinigameToggle.Value do
+                local cupKeyAmount = getCupKeyAmount()
+                
+                -- Check if we've hit a multiple of 10 keys
+                if cupKeyAmount % 10 == 0 and cupKeyAmount > 0 and cupKeyAmount < startingKeys then
+                    canContinue = false
+                    task.wait(3)
+                    fireWinCancelButton()
+                    task.wait(3)
+                    startingKeys = cupKeyAmount
+                    canContinue = true
+                end
+
+                -- Stop if completely out of keys
+                if cupKeyAmount == 0 then
+                    fireWinCancelButton()
+                    task.wait(3)
+                end
+
+                if canContinue and not CupMinigameController.Stand and cupKeyAmount > 0 then
+                    startCupGameIfInactive()
+                    task.wait(1)
+                end
+
+                -- If in game, play the round
+                if canContinue and CupMinigameController.Stand then
+                    local highlightedCup = nil
+                    while not highlightedCup and CupMinigameToggle.Value do
+                        for _, cup in pairs(CupMinigameController.Stand.Cups:GetChildren()) do
+                            local ball = CupMinigameController.Stand.Balls:FindFirstChild(cup.Name)
+                            if ball and ball.PrimaryPart and ball.PrimaryPart.Transparency == 0 then
+                                highlightCup(cup)
+                                highlightedCup = cup
+                                break
+                            end
+                        end
+                        task.wait(0.1)
+                    end
+
+                    task.wait(0.5)
+
+                    local billboard = CupMinigameController.CupBillboards[highlightedCup]
+                    if billboard then
+                        fireCupButtonWhenVisible(billboard)
+                    else
+                    end
+
+                    task.wait(1)
+                    fireWinProceedButton()
+                    task.wait(2)
+                else
+                    -- Not in game or paused, wait 3 seconds before checking again
+                    task.wait(3)
+                end
+            end
+        end)
+    end
+end)
+
+-- Hand the library over to our managers
+SaveManager:SetLibrary(Library)
+InterfaceManager:SetLibrary(Library)
+SaveManager:IgnoreThemeSettings()
+SaveManager:SetIgnoreIndexes{}
+InterfaceManager:SetFolder("FluentScriptHub")
+SaveManager:SetFolder("FluentScriptHub/specific-game")
+
+
+InterfaceManager:BuildInterfaceSection(Tabs.Settings)
+SaveManager:BuildConfigSection(Tabs.Settings)
+Window:SelectTab(1)
+SaveManager:LoadAutoloadConfig()
+
