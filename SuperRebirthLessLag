@@ -1,0 +1,852 @@
+-- Optimized Super Rebirth Script - Ultra Low Lag Version
+local OptimizedSuperRebirth = {}
+
+-- Ultra Performance Configuration
+local PERF_CONFIG = {
+    CACHE_DURATION = 15, -- Cache data for 15 seconds
+    UPDATE_INTERVAL = 5, -- Main loop every 5 seconds
+    BATCH_SIZE = 5, -- Smaller batches
+    UI_UPDATE_INTERVAL = 10, -- Update UI every 10 seconds
+    ARM_CHECK_INTERVAL = 60, -- Check arms every 60 seconds
+    TEAM_REFRESH_INTERVAL = 120, -- Refresh teams every 2 minutes
+    CLICK_THREADS = 5, -- Reduced from 20 to 5
+    TOOL_CLICK_INTERVAL = 1 -- Tool click every 1 second
+}
+
+-- Services Cache
+local Services = {
+    ReplicatedStorage = game:GetService("ReplicatedStorage"),
+    Players = game:GetService("Players"),
+    RunService = game:GetService("RunService"),
+    VirtualInputManager = game:GetService("VirtualInputManager")
+}
+
+local LocalPlayer = Services.Players.LocalPlayer
+
+-- Zone win requirements (matches New SR.lua)
+local ZONE_WIN_REQUIREMENTS = {
+    [1] = 0,
+    [2] = 625,
+    [3] = 10e6,
+    [4] = 30e9,
+    [5] = 1.2e15,
+    [6] = 500e18,
+    [7] = 50e24,
+    [8] = 150e27,
+    [9] = 1.5e33
+}
+
+-- Load required modules
+local SuperRebirthCosts, RebirthRequirements
+pcall(function()
+    SuperRebirthCosts = require(Services.ReplicatedStorage.Data:WaitForChild("SuperRebirthCosts"))
+    RebirthRequirements = require(Services.ReplicatedStorage.Data:WaitForChild("RebirthRequirements"))
+end)
+
+-- Fallback data if modules fail to load
+if not SuperRebirthCosts then
+    SuperRebirthCosts = {[1] = 10, [2] = 50, [3] = 100, [4] = 250, [5] = 500}
+end
+if not RebirthRequirements then
+    RebirthRequirements = {[1] = 100, [2] = 500, [3] = 2500, [4] = 12500, [5] = 62500}
+end
+
+-- Lazy load services
+local function getService(path)
+    local parts = path:split(".")
+    local current = Services.ReplicatedStorage
+    for _, part in ipairs(parts) do
+        current = current:WaitForChild(part, 5)
+        if not current then return nil end
+    end
+    return current
+end
+
+-- Data Cache System
+local DataCache = {
+    teams = {data = {}, lastUpdate = 0},
+    arms = {data = {}, lastUpdate = 0},
+    requirements = {data = {}, lastUpdate = 0}
+}
+
+-- Helper functions
+local function getNextSRRequirements(currentSRLevel)
+    local nextSRLevel = nil
+    local nextRebirthReq = nil
+    for srLevel, rebirthsRequired in pairs(SuperRebirthCosts) do
+        if srLevel > currentSRLevel then
+            if not nextSRLevel or srLevel < nextSRLevel then
+                nextSRLevel = srLevel
+                nextRebirthReq = rebirthsRequired
+            end
+        end
+    end
+    return nextSRLevel, nextRebirthReq
+end
+
+local function canAffordSuperRebirth()
+    local rebirths = LocalPlayer:GetAttribute("Rebirths") or 0
+    local superrb = LocalPlayer:GetAttribute("SuperRBTokens") or 0
+    local currentWins = LocalPlayer:GetAttribute("Wins") or 0
+    local nextSRLevel, nextRebirthReq = getNextSRRequirements(superrb)
+    
+    if not nextSRLevel or not nextRebirthReq then
+        return false
+    end
+    
+    local totalWinsNeeded = 0
+    for i = rebirths + 1, nextRebirthReq do
+        local cost = RebirthRequirements[i]
+        if cost then
+            totalWinsNeeded = totalWinsNeeded + cost
+        else
+            return false
+        end
+    end
+    
+    return currentWins >= totalWinsNeeded
+end
+
+-- Zone progression functions (using wins-based logic from New SR.lua)
+local function GetZoneFromWins(wins)
+    local zone = 1
+    for i = 9, 1, -1 do
+        if wins >= ZONE_WIN_REQUIREMENTS[i] then
+            zone = i
+            break
+        end
+    end
+    return zone
+end
+
+local function shouldUpgradeZone(currentWins)
+    local currentBestZone = tonumber(LocalPlayer:GetAttribute("BestZone")) or 1
+    local maxAffordableZone = GetZoneFromWins(currentWins)
+    return maxAffordableZone > currentBestZone
+end
+
+local function performRebirth()
+    pcall(function()
+        getService("Packages.Knit.Services.RebirthService.RE.onRebirthRequest"):FireServer()
+    end)
+end
+
+local function performSuperRebirth()
+    pcall(function()
+        getService("Packages.Knit.Services.RebirthService.RE.onSuperRebirth"):FireServer()
+    end)
+end
+
+local function trail()
+    local args = {"Trails", "Sparkle"}
+    pcall(function()
+        getService("Packages.Knit.Services.PurchaseService.RE.onPurchaseRequest"):FireServer(unpack(args))
+    end)
+end
+
+local function teleportToZone(zoneNumber)
+    local zone = tostring(zoneNumber)
+    local args = {workspace.Zones:FindFirstChild(zone) and workspace.Zones:FindFirstChild(zone).Interactables.Teleports.Locations.Spawn}
+    if args[1] then
+        pcall(function()
+            getService("Packages.Knit.Services.ZoneService.RE.teleport"):FireServer(unpack(args))
+        end)
+    end
+end
+
+-- Equipment management functions (using zone-based logic from New SR.lua)
+local function GetTrainingTypeFromZone(zone)
+    if not zone then return nil end
+    if zone >= 1 and zone <= 3 then
+        return "Grips"
+    elseif zone == 4 or zone == 5 then
+        return "Dumbells"
+    elseif zone == 6 then
+        return "Grips"
+    elseif zone >= 7 and zone <= 9 then
+        return "Dumbells"
+    else
+        return "Grips"
+    end
+end
+
+local function FindEquipmentInZone(zoneNumber, equipmentType, player)
+    local dataModule = {
+        Dumbells = Services.ReplicatedStorage.Data.Dumbells,
+        Grips = Services.ReplicatedStorage.Data.Grips
+    }
+
+    local strengthAttributes = {
+        Dumbells = "TotalBicepPower",
+        Grips = "TotalHandStrength"
+    }
+
+    local module = dataModule[equipmentType]
+    if not module then return nil end
+
+    local success, data = pcall(function() return require(module) end)
+    if not success then return nil end
+    
+    local zoneKey = tostring(zoneNumber)
+    local playerStrength = player:GetAttribute(strengthAttributes[equipmentType]) or 0
+
+    if data[zoneKey] then
+        local highestQualified = nil
+        for itemKey, item in pairs(data[zoneKey]) do
+            if item.StrengthRequired and playerStrength >= item.StrengthRequired then
+                local itemNum = tonumber(itemKey:match("%d+"))
+                local highestNum = highestQualified and tonumber(highestQualified:match("%d+")) or 0
+                if itemNum and itemNum > highestNum then
+                    highestQualified = itemKey
+                end
+            end
+        end
+        return highestQualified
+    end
+    return nil
+end
+
+local function GetHighestEquipment(player, equipmentType)
+    local attributes = player:GetAttributes()
+    local zones = {}
+
+    for attrName, attrValue in pairs(attributes) do
+        if string.match(attrName, "^Zone%d+$") and attrValue == true then
+            local zoneNumber = tonumber(string.match(attrName, "%d+"))
+            if zoneNumber then
+                table.insert(zones, zoneNumber)
+            end
+        end
+    end
+
+    table.sort(zones, function(a,b) return a > b end)
+
+    for _, zoneNumber in ipairs(zones) do
+        local equipment = FindEquipmentInZone(zoneNumber, equipmentType, player)
+        if equipment then
+            return zoneNumber, equipment
+        end
+    end
+
+    return nil, nil
+end
+
+-- Optimized data fetchers
+local function fetchTeamDataOptimized()
+    local cache = DataCache.teams
+    local now = tick()
+    
+    if (now - cache.lastUpdate) < PERF_CONFIG.CACHE_DURATION then
+        return cache.data.teamData or {}, cache.data.uniqueNames or {}
+    end
+    
+    local teamService = getService("Packages.Knit.Services.PetTeamService.RF.getTeams")
+    if not teamService then return {}, {} end
+    
+    local success, data = pcall(function()
+        return teamService:InvokeServer()
+    end)
+    
+    if success and data then
+        local teamData = {}
+        local uniqueNames = {}
+        
+        for teamId, teamInfo in pairs(data) do
+            if teamInfo and teamInfo.Name then
+                teamData[teamInfo.Name] = {
+                    Id = teamId,
+                    Name = teamInfo.Name
+                }
+                if not table.find(uniqueNames, teamInfo.Name) then
+                    table.insert(uniqueNames, teamInfo.Name)
+                end
+            end
+        end
+        
+        table.sort(uniqueNames)
+        cache.data = {teamData = teamData, uniqueNames = uniqueNames}
+        cache.lastUpdate = now
+    end
+    
+    return cache.data.teamData or {}, cache.data.uniqueNames or {}
+end
+
+local PERF_CONFIG = {
+    CACHE_DURATION = 15, -- Cache data for 15 seconds
+    UPDATE_INTERVAL = 5, -- Main loop every 5 seconds
+    BATCH_SIZE = 5, -- Smaller batches
+    UI_UPDATE_INTERVAL = 10, -- Update UI every 10 seconds
+    ARM_CHECK_INTERVAL = 60, -- Check arms every 60 seconds (1 minute)
+    TEAM_REFRESH_INTERVAL = 120, -- Refresh teams every 2 minutes
+    CLICK_THREADS = 5, -- Reduced from 20 to 5
+    TOOL_CLICK_INTERVAL = 1 -- Tool click every 1 second
+}
+
+-- Data Cache System with persistent arm storage
+local DataCache = {
+    teams = {data = {}, lastUpdate = 0},
+    arms = {
+        data = {
+            bestFightingPercent = 100, -- Default 100%
+            bestTrainingMultiplier = 1, -- Default 1x
+            bestFightingArmId = nil,
+            bestTrainingArmId = nil
+        }, 
+        lastUpdate = 0
+    },
+    requirements = {data = {}, lastUpdate = 0}
+}
+
+
+local function fetchArmStatsOptimized()
+    local cache = DataCache.arms
+    local now = tick()
+    
+    -- Only check arms every minute to prevent breaking
+    if (now - cache.lastUpdate) < PERF_CONFIG.ARM_CHECK_INTERVAL then
+        return cache.data -- Return stored data
+    end
+    
+    
+    local playerGui = LocalPlayer:FindFirstChild("PlayerGui")
+    if not playerGui then 
+        return cache.data -- Return stored data instead of defaults
+    end
+    
+    local armsFolder = playerGui:FindFirstChild("GameUI")
+    if armsFolder then
+        armsFolder = armsFolder:FindFirstChild("Menus")
+        if armsFolder then
+            armsFolder = armsFolder:FindFirstChild("Arms")
+            if armsFolder then
+                armsFolder = armsFolder:FindFirstChild("Container")
+                if armsFolder then
+                    armsFolder = armsFolder:FindFirstChild("Arms")
+                end
+            end
+        end
+    end
+    
+    if not armsFolder then 
+        return cache.data -- Return stored data instead of defaults
+    end
+    
+    -- Use current cached values as starting point
+    local bestFightingPercent = cache.data.bestFightingPercent or 100
+    local bestTrainingMultiplier = cache.data.bestTrainingMultiplier or 1
+    local bestFightingArmId = cache.data.bestFightingArmId
+    local bestTrainingArmId = cache.data.bestTrainingArmId
+    
+    
+    -- Check for better arms
+    for _, arm in pairs(armsFolder:GetChildren()) do
+        if arm:IsA("GuiObject") and arm.Name ~= "Squiggle" then
+            local toggle = arm:FindFirstChild("Toggle")
+            if toggle then
+                local stat = toggle:FindFirstChild("Stat")
+                if stat and stat:IsA("GuiObject") then
+                    local text = stat.Text
+                    
+                    -- Check fighting percentage (only update if better)
+                    local percentStr = text:match("(%d+)%%")
+                    if percentStr then
+                        local percentValue = tonumber(percentStr)
+                        if percentValue and percentValue > bestFightingPercent then
+                            bestFightingPercent = percentValue
+                            bestFightingArmId = arm.Name
+                        end
+                    end
+                    
+                    -- Check training multiplier (only update if better)
+                    local xStr = text:match("([%d%.]+)x")
+                    if xStr then
+                        local xValue = tonumber(xStr)
+                        if xValue and xValue > bestTrainingMultiplier then
+                            bestTrainingMultiplier = xValue
+                            bestTrainingArmId = arm.Name
+                        end
+                    end
+                end
+            end
+        end
+    end
+    
+    -- Update cache with new data (or keep old if no better arms found)
+    cache.data = {
+        bestFightingPercent = bestFightingPercent,
+        bestTrainingMultiplier = bestTrainingMultiplier,
+        bestFightingArmId = bestFightingArmId,
+        bestTrainingArmId = bestTrainingArmId
+    }
+    cache.lastUpdate = now
+    
+    return cache.data
+end
+
+-- Boss data
+local bosses = {
+    {Name = "Champion", Strength = 458333 * 2, Zone = 1, GameName = "Champion"},
+    {Name = "Rogue Ai", Strength = 4.5289025e+10 * 2, Zone = 2, GameName = "RogueAi"},
+    {Name = "Kraken", Strength = 1.557622475e+15 * 2, Zone = 3, GameName = "KrakenBoss"},
+    {Name = "Mutant King", Strength = 1.2997e+17 * 2, Zone = 4, GameName = "MutantKing"},
+    {Name = "Mammoth", Strength = 8.5e+17 * 2, Zone = 5, GameName = "Mammoth"},
+    {Name = "Udzal", Strength = 1e+21 * 2, Zone = 6, GameName = "Udzal"},
+    {Name = "Space Dog", Strength = 1.3e+24 * 2, Zone = 7, GameName = "SpaceDog"},
+    {Name = "Undead Sparta", Strength = 1.5e+25 * 2, Zone = 8, GameName = "UndeadSparta"},
+    {Name = "Evil Overseer", Strength = 2.3e+26 * 2, Zone = 9, GameName = "EvilOverseer"}
+}
+
+local function getBossForZone(zone)
+    for _, boss in ipairs(bosses) do
+        if boss.Zone == zone then
+            return boss
+        end
+    end
+    return bosses[1]
+end
+
+-- Optimized UI Creation
+local function createOptimizedUI()
+    local Library = loadstring(game:HttpGetAsync("https://github.com/ActualMasterOogway/Fluent-Renewed/releases/latest/download/Fluent.luau"))()
+    
+    local Window = Library:Window{
+        Title = "Super Rebirths - ULTRA OPTIMIZED",
+        SubTitle = "Minimum Lag Performance",
+        TabWidth = 160,
+        Size = UDim2.fromOffset(580, 460),
+        Resize = false,
+        Acrylic = false,
+        Theme = "Dark",
+        MinimizeKey = Enum.KeyCode.LeftShift
+    }
+    
+    return Window, Library
+end
+
+-- Super Rebirth Logic
+local function createSuperRebirthSystem(window)
+    local superRBData = {
+        strengthTeam = nil,
+        winsTeam = nil,
+        running = false,
+        isFighting = false,
+        autoClickThreads = {},
+        lastFightTime = 0,
+        lastArmEquipTime = 0,
+        trainingStartTime = 0,
+        wasTrainingLastLoop = false,
+        currentBestZone = 1,
+        lastEquipmentCheck = 0,
+        lastTeleportedZone = 1,
+    }
+    
+    local tab = window:AddTab({Title = "Super Rebirths", Icon = "star"})
+    
+    -- Player info paragraph
+    local playerInfoParagraph = tab:Paragraph("PlayerInfo", {
+        Title = "Player Info",
+        Content = "Please enable the super rebirth toggle to start.",
+        TitleAlignment = "Middle",
+        ContentAlignment = Enum.TextXAlignment.Left
+    })
+    
+    -- Team selection
+    local strengthTeamDropdown = tab:AddDropdown("StrengthTeam", {
+        Title = "Strength Team",
+        Description = "Select team to grind strength",
+        Values = {},
+        Multi = false
+    })
+    
+    local winsTeamDropdown = tab:AddDropdown("WinsTeam", {
+        Title = "Wins Team",
+        Description = "Select a team for wins",
+        Values = {},
+        Multi = false
+    })
+
+    local refreshTeamsButton = tab:AddButton({
+        Title = "Refresh Teams",
+        Description = "Manually update team dropdown lists",
+        Callback = function()
+            -- Clear cache to force fresh data
+            DataCache.teams = {data = {}, lastUpdate = 0}
+
+            -- Refresh team data and update dropdowns
+            local teamData, uniqueNames = fetchTeamDataOptimized()
+            if uniqueNames and strengthTeamDropdown and winsTeamDropdown then
+                strengthTeamDropdown:SetValues(uniqueNames)
+                winsTeamDropdown:SetValues(uniqueNames)
+            else
+                warn("Failed to refresh teams: Missing data or dropdown references")
+            end
+        end
+    })
+
+    
+    -- Auto rebirth toggle
+    local autoRebirthToggle = tab:AddToggle("AutoRebirth", {
+        Title = "Auto Rebirth",
+        Description = "Automatically rebirth",
+        Default = false
+    })
+    
+    -- Super rebirth toggle
+    local superRBToggle = tab:AddToggle("SuperRebirth", {
+        Title = "Super Rebirth",
+        Description = "Automatically perform super rebirths",
+        Default = false
+    })
+    
+    -- Optimized team data refresh
+    local function refreshTeamData()
+        local teamData, uniqueNames = fetchTeamDataOptimized()
+        strengthTeamDropdown:SetValues(uniqueNames)
+        winsTeamDropdown:SetValues(uniqueNames)
+        return teamData
+    end
+    
+    -- Equipment functions
+    local function equipTeam(teamName, teamData)
+        if teamName and teamData[teamName] then
+            local args = {teamData[teamName].Id}
+            pcall(function()
+                getService("Packages.Knit.Services.PetTeamService.RE.onEquipTeam"):FireServer(unpack(args))
+            end)
+        end
+    end
+    
+    local function equipArm(armId)
+        if armId then
+            local args = {armId}
+            pcall(function()
+                getService("Packages.Knit.Services.ArmsService.RF.EquipArm"):InvokeServer(unpack(args))
+            end)
+        end
+    end
+    
+    local function fightBoss(zone, bossName)
+        if superRBData.isFighting then return end
+        
+        -- Check if player is in the correct zone before fighting
+        local currentZone = LocalPlayer:GetAttribute("CurrentZone") or 1
+        if currentZone ~= zone then
+            teleportToZone(zone)
+            task.wait(2) -- Wait for teleport to complete
+        end
+        
+        superRBData.isFighting = true
+        superRBData.lastFightTime = tick() -- Track when fight started
+
+        local args = {
+            bossName
+        }
+        
+        pcall(function()
+            getService("Packages.Knit.Services.ArmWrestleService.RF.RequestStartFight"):InvokeServer(unpack(args))
+        end)
+    end
+    
+    -- Ultra optimized auto click system
+    local function startAutoClick()
+        -- Stop existing threads
+        for _, thread in pairs(superRBData.autoClickThreads) do
+            if typeof(thread) == "thread" then
+                task.cancel(thread)
+            elseif typeof(thread) == "table" then
+                thread.active = false
+            end
+        end
+        superRBData.autoClickThreads = {}
+        
+        -- Start minimal threads for performance
+        for i = 1, PERF_CONFIG.CLICK_THREADS do
+            local threadData = {active = true}
+            table.insert(superRBData.autoClickThreads, threadData)
+            
+            task.spawn(function()
+                while threadData.active and superRBData.isFighting do
+                    pcall(function()
+                        getService("Packages.Knit.Services.ArmWrestleService.RF.RequestClick"):InvokeServer()
+                        getService("Packages.Knit.Services.ArmWrestleService.RF.RequestCritHit"):InvokeServer()
+                    end)
+                    task.wait(0.05) -- Slower for ultra performance
+                end
+            end)
+        end
+    end
+    
+    -- Event handlers
+    strengthTeamDropdown:OnChanged(function(value)
+        superRBData.strengthTeam = value
+    end)
+    
+    winsTeamDropdown:OnChanged(function(value)
+        superRBData.winsTeam = value
+    end)
+    
+    autoRebirthToggle:OnChanged(function(value)
+        if value then
+            spawn(function()
+                while autoRebirthToggle.Value do
+                    performRebirth()
+                    wait(0.5) -- Slower for performance
+                end
+            end)
+        end
+    end)
+    
+    superRBToggle:OnChanged(function(value)
+        superRBData.running = value
+        
+        if value then
+            -- Equipment manager loop (much slower)
+            spawn(function()
+                while superRBData.running do
+                    if tick() - superRBData.lastEquipmentCheck > 30 then -- Every 30 seconds
+                        local wins = LocalPlayer:GetAttribute("Wins") or 0
+                        local trainingZone = GetZoneFromWins(wins)
+                        local trainingType = GetTrainingTypeFromZone(trainingZone)
+                        if trainingType then
+                            local zone, equipment = GetHighestEquipment(LocalPlayer, trainingType)
+                            if zone and equipment then
+                                local args = {tostring(zone), trainingType, equipment}
+                                pcall(function()
+                                    getService("Packages.Knit.Services.ToolService.RE.onGuiEquipRequest"):FireServer(unpack(args))
+                                end)
+                            end
+                        end
+                        superRBData.lastEquipmentCheck = tick()
+                    end
+                    wait(10)
+                end
+            end)
+            
+            spawn(function()
+                while superRBData.running do
+                    local teamData = fetchTeamDataOptimized()
+                    local armStats = fetchArmStatsOptimized()
+                    
+                    if not superRBData.strengthTeam or not superRBData.winsTeam then
+                        wait(5)
+                        continue
+                    end
+                    
+            spawn(function()
+                local restartTimer = tick()
+                while superRBToggle.Value do
+                    if (tick() - restartTimer) >= 60 then -- Check every loop if 60 seconds passed
+                        superRBToggle:SetValue(false)
+                        task.wait(2)
+                        superRBToggle:SetValue(true)
+                        task.wait(1)
+                        superRBToggle:SetValue(true) -- Second attempt
+                        restartTimer = tick() -- Reset timer
+                    end
+                    task.wait(1) -- Check every second instead of blocking for 60
+                end
+            end)
+
+                    local handStrength = LocalPlayer:GetAttribute("HandStrength") or 0
+                    local knuckleStrength = LocalPlayer:GetAttribute("KnuckleStrength") or 0
+                    local bicepPower = LocalPlayer:GetAttribute("BicepPower") or 0
+                    local totalStrength = handStrength + knuckleStrength + bicepPower
+                    local currentWins = LocalPlayer:GetAttribute("Wins") or 0
+                    local currentrail = LocalPlayer:GetAttribute("Trail") or 0
+                    local rebirths = LocalPlayer:GetAttribute("Rebirths") or 0
+                    local superrb = LocalPlayer:GetAttribute("SuperRBTokens") or 0
+
+                    local bestZone = GetZoneFromWins(currentWins)
+                    
+                    -- Only teleport if zone increased
+                    if bestZone > superRBData.lastTeleportedZone then
+                        teleportToZone(bestZone)
+                        superRBData.lastTeleportedZone = bestZone
+                    end
+                    
+                    local boss = getBossForZone(bestZone)
+                    local multiplier = (armStats.bestFightingPercent or 0) / 100
+                    local effectiveStrength = totalStrength * multiplier
+                    local canBeatBoss = effectiveStrength >= boss.Strength 
+                    
+                    local nextSRLevel, nextRebirthReq = getNextSRRequirements(superrb)
+                    
+                    -- Check if we can perform super rebirth
+                    if nextSRLevel and nextRebirthReq and rebirths >= nextRebirthReq then
+                        performSuperRebirth()
+                        -- Reset zone to 1 after super rebirth
+                        superRBData.lastTeleportedZone = 1
+                        teleportToZone(1)
+                        wait(3) -- Longer wait after super rebirth
+                        superRBData.wasTrainingLastLoop = false
+                        superRBData.trainingStartTime = 0
+                    -- Check if we can afford super rebirth by doing rebirths
+                    elseif canAffordSuperRebirth() and nextRebirthReq then
+                        while superRBData.running and rebirths < nextRebirthReq do
+                            local nextRebirthCost = RebirthRequirements[rebirths + 1]
+                            local currentWinsCheck = LocalPlayer:GetAttribute("Wins") or 0
+                            
+                            if nextRebirthCost and currentWinsCheck >= nextRebirthCost then
+                                performRebirth()
+                                task.wait(0.2)
+                                rebirths = LocalPlayer:GetAttribute("Rebirths") or 0
+                            else
+                                break
+                            end
+                        end
+                        superRBData.wasTrainingLastLoop = false
+                        superRBData.trainingStartTime = 0
+                    -- If we can beat the boss, fight for wins
+                    elseif canBeatBoss then
+                        -- Equip wins team and fighting arm for boss battles
+                        equipTeam(superRBData.winsTeam, teamData)
+                        equipArm(armStats.bestFightingArmId)
+                        
+                        if tick() - superRBData.lastArmEquipTime > 10 then
+                            equipArm(armStats.bestFightingArmId)
+                            superRBData.lastArmEquipTime = tick()
+                        end
+                        
+                        -- Start boss fight if not already fighting
+                        if not superRBData.isFighting then
+                            fightBoss(bestZone, boss.GameName)
+                        end
+                        
+                        superRBData.wasTrainingLastLoop = false
+                        superRBData.trainingStartTime = 0
+                    else
+                        -- Train for strength
+                        equipTeam(superRBData.strengthTeam, teamData)
+                        equipArm(armStats.bestTrainingArmId)
+                        
+                        if tick() - superRBData.lastArmEquipTime > 10 then
+                            equipArm(armStats.bestTrainingArmId)
+                            superRBData.lastArmEquipTime = tick()
+                        end
+                        
+                        -- Track training time and force rebirths if training too long
+                        if not superRBData.wasTrainingLastLoop then
+                            superRBData.trainingStartTime = tick()
+                            superRBData.wasTrainingLastLoop = true
+                        end
+                        
+                        if tick() - superRBData.trainingStartTime > 20 then -- Longer training time
+                            for i = 1, 30 do -- Fewer rebirths
+                                performRebirth()
+                                task.wait(0.2)
+                                if i % 30 == 0 then -- Trail every 30 rebirths
+                                    trail()
+                                end
+                            end
+                            superRBData.trainingStartTime = tick()
+                        end
+                    end
+                   
+                    wait(PERF_CONFIG.UPDATE_INTERVAL)
+                end
+            end)
+            
+            -- Auto-click loop (slower)
+            spawn(function()
+                while superRBData.running do
+                    if superRBData.isFighting then
+                        startAutoClick()
+                    end
+                    wait(1) -- Slower check
+                end
+            end)
+            
+            -- Tool clicking loop (much slower)
+            spawn(function()
+                while superRBData.running do
+                    pcall(function()
+                        getService("Packages.Knit.Services.ToolService.RE.onClick"):FireServer()
+                    end)
+                    wait(PERF_CONFIG.TOOL_CLICK_INTERVAL)
+                end
+            end)
+        end
+    end)
+    
+    -- Ultra slow UI update loop
+    spawn(function()
+        while true do
+            if superRBData.running then
+                local handStrength = LocalPlayer:GetAttribute("HandStrength") or 0
+                local knuckleStrength = LocalPlayer:GetAttribute("KnuckleStrength") or 0
+                local bicepPower = LocalPlayer:GetAttribute("BicepPower") or 0
+                local totalStrength = handStrength + knuckleStrength + bicepPower
+                local wins = LocalPlayer:GetAttribute("Wins") or 0
+                local zone = GetZoneFromWins(wins) -- Use wins-based zone
+                local rebirths = LocalPlayer:GetAttribute("Rebirths") or 0
+                local superrb = LocalPlayer:GetAttribute("SuperRBTokens") or 0
+                
+                local armStats = fetchArmStatsOptimized()
+                local nextSRLevel, nextRebirthReq = getNextSRRequirements(superrb)
+                local nextSRText = nextSRLevel and string.format("Next SR: %d rebirths", math.max(0, nextRebirthReq - rebirths)) or "Max SR"
+                local canAfford = canAffordSuperRebirth() and "Yes" or "No"
+                
+                -- Find next zone you can't afford yet
+                local nextZoneText = "Max Zone Unlocked"
+                for zoneIndex = 2, 9 do
+                    local req = ZONE_WIN_REQUIREMENTS[zoneIndex]
+                    if req and wins < req then
+                        local winsNeeded = req - wins
+                        nextZoneText = string.format("Next Zone: %d (%.2e more wins needed)", zoneIndex, winsNeeded)
+                        break
+                    end
+                end
+                
+                local content = string.format(
+                    "Strength: %.2e\nWins: %.2e\nCurrent Zone: %d\nRebirths: %d\nSuper Rebirths: %d\nFighting Arm: %d%%\nTraining Arm: %.2fx\nFighting: %s\n%s\nCan Afford SR: %s\n%s",
+                    totalStrength, wins, zone, rebirths, superrb,
+                    armStats.bestFightingPercent or 0,
+                    armStats.bestTrainingMultiplier or 0,
+                    tostring(superRBData.isFighting),
+                    nextSRText, canAfford, nextZoneText
+                )
+                
+                playerInfoParagraph:SetContent(content)
+            end
+            wait(PERF_CONFIG.UI_UPDATE_INTERVAL)
+        end
+    end)
+    
+    -- Team refresh loop (much slower)
+    spawn(function()
+        while true do
+            refreshTeamData()
+            wait(PERF_CONFIG.TEAM_REFRESH_INTERVAL)
+        end
+    end)
+    
+    -- Listen for zone changes
+    LocalPlayer:GetAttributeChangedSignal("CurrentZone"):Connect(function()
+        -- Clear fighting status if zone changes during a fight
+        if superRBData.isFighting then
+            superRBData.isFighting = false
+        end
+    end)
+
+    -- Listen for boss kill changes with shorter cooldown
+    LocalPlayer:GetAttributeChangedSignal("BossKills"):Connect(function()
+        superRBData.isFighting = false
+        task.wait(0.5) -- Reduced from 1 second to 0.5 seconds
+    end)
+    
+    -- Initial setup
+    refreshTeamData()
+end
+
+-- Initialize system
+function OptimizedSuperRebirth.Initialize()
+    local Window, Library = createOptimizedUI()
+    createSuperRebirthSystem(Window)
+end
+
+
+
+-- Auto-initialize
+OptimizedSuperRebirth.Initialize()
+
+return OptimizedSuperRebirth
